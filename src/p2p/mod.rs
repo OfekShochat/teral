@@ -12,6 +12,7 @@ use {
     serde_derive::{Deserialize, Serialize},
     std::{
         collections::{HashMap, HashSet},
+        fmt,
         io::{self, Read, Write},
         net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket},
         sync::{
@@ -19,8 +20,6 @@ use {
             mpsc::{channel, Receiver, RecvTimeoutError, SendError, Sender},
             Arc,
         },
-        fmt,
-        error::Error,
         thread::{self, JoinHandle},
         time::Duration,
     },
@@ -32,12 +31,12 @@ const RECV_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Debug)]
 enum P2PError {
-    ReceiverTimeoutError,
-    ReceiverDisconnectError,
-    SenderError,
-    SerializeError(bincode::Error),
-    CannotDiscoverError,
-    TcpError,
+    ReceiverTimeout,
+    ReceiverDisconnect,
+    Sender,
+    Serialize(bincode::Error),
+    CannotDiscover,
+    Tcp,
 }
 
 impl fmt::Display for P2PError {
@@ -48,13 +47,13 @@ impl fmt::Display for P2PError {
 
 impl<T> From<SendError<T>> for P2PError {
     fn from(_: SendError<T>) -> Self {
-        Self::SenderError
+        Self::Sender
     }
 }
 
 impl From<RecvTimeoutError> for P2PError {
     fn from(_: RecvTimeoutError) -> Self {
-        Self::ReceiverTimeoutError
+        Self::ReceiverTimeout
     }
 }
 
@@ -96,7 +95,7 @@ impl Message {
 }
 
 fn serialize<T: serde::Serialize>(value: T) -> bincode::Result<Vec<u8>> {
-    Ok(bincode::serialize(&value)?)
+    bincode::serialize(&value)
 }
 
 fn deserialize<T>(data: &[u8]) -> bincode::Result<T>
@@ -130,13 +129,13 @@ fn discover(
     target: usize,
 ) -> anyhow::Result<HashSet<SocketAddr>> {
     const TIMEOUT: Duration = Duration::from_secs(2);
-    let mut contacts = HashSet::new();
+    let mut discovered = HashSet::new();
 
     let (send, recv) = channel();
     let exit = Arc::new(AtomicBool::new(false));
     let receiver_handle = tcp_receiver(listener, send, &exit, "discover");
 
-    while contacts.len() < target {
+    while discovered.len() < target {
         let addr = cluster_info.get_discovery_node().unwrap(); // TODO: find a pretty way so that we do not dial the same peer more than once, and that if it errors out, we retry.
 
         let stream = &mut TcpStream::connect_timeout(addr, TIMEOUT);
@@ -148,9 +147,9 @@ fn discover(
         }
 
         if let Ok(message_bytes) = recv.recv_timeout(TIMEOUT) {
-            if let Ok(message) = deserialize::<Contacts>(&message_bytes) {
-                for contact in message.contacts {
-                    contacts.insert(contact);
+            if let Ok(received_contacts) = deserialize::<Vec<SocketAddr>>(&message_bytes) {
+                for contact in received_contacts {
+                    discovered.insert(contact);
                 }
             }
         }
@@ -158,7 +157,7 @@ fn discover(
     exit.store(true, Ordering::Relaxed);
     receiver_handle.join().unwrap();
 
-    Ok(contacts)
+    Ok(discovered)
 }
 
 fn send_udp(socket: &UdpSocket, addr: &SocketAddr, message: Message) -> io::Result<usize> {
@@ -182,7 +181,7 @@ impl ClusterInfo {
             .expect("Could not find contact_list");
         let contact_list = contact_bytes
             .chunks_exact(6)
-            .map(|bytes| Self::ipv4_from_bytes(bytes))
+            .map(Self::ipv4_from_bytes)
             .collect();
 
         Self {
@@ -238,13 +237,13 @@ impl GossipService {
         let (req_send, req_recv) = channel();
 
         let exit = exit.clone();
-        let h_receiver = udp_receiver(socket.clone(), req_send, &exit, "gossip");
+        let h_receiver = udp_receiver(socket, req_send, &exit, "gossip");
 
         let (consume_send, consume_recv) = channel();
         let h_socket_consume = Self::signature_verifier(consume_send, req_recv, exit.clone());
 
         let (validator_send, validator_recv) = channel();
-        let h_listener = Self::listen(consume_recv, validator_send, exit.clone());
+        let h_listener = Self::listen(consume_recv, validator_send, exit);
         gossip.threads = vec![h_receiver, h_socket_consume, h_listener];
 
         (gossip, validator_recv)
@@ -302,9 +301,9 @@ impl GossipService {
             .spawn(move || {
                 while !exit.load(Ordering::Relaxed) {
                     match Self::signature_verifier_thread(&thread_pool, &sender, &receiver) {
-                        Err(P2PError::ReceiverTimeoutError) => debug!("timeout somehow"),
-                        Err(P2PError::SenderError) => break,
-                        Err(P2PError::ReceiverDisconnectError) => break,
+                        Err(P2PError::ReceiverTimeout) => debug!("timeout somehow"),
+                        Err(P2PError::Sender) => break,
+                        Err(P2PError::ReceiverDisconnect) => break,
                         Err(err) => error!("socket-consume: {:?}", err),
                         Ok(()) => (),
                     }
@@ -392,7 +391,7 @@ fn tcp_receiver(
     thread::Builder::new()
         .name(String::from(name))
         .spawn(move || {
-            let _ = tcp_recv_loop(listener, channel, exit.clone());
+            let _ = tcp_recv_loop(listener, channel, exit);
         })
         .unwrap()
 }
@@ -407,15 +406,12 @@ fn tcp_recv_loop(
         if exit.load(Ordering::Relaxed) {
             return Ok(());
         }
-        match listener.accept() {
-            Ok((mut stream, _)) => {
-                let _ = stream.set_read_timeout(Some(RECV_TIMEOUT));
-                let mut buf = Vec::new();
-                if let Ok(_) = stream.read_to_end(&mut buf) {
-                    channel.send(buf).unwrap();
-                }
+        if let Ok((mut stream, _)) = listener.accept() {
+            let _ = stream.set_read_timeout(Some(RECV_TIMEOUT));
+            let mut buf = Vec::new();
+            if stream.read_to_end(&mut buf).is_ok() {
+                channel.send(buf).unwrap();
             }
-            Err(_) => {}
         }
     }
 }
