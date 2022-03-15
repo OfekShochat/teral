@@ -1,0 +1,10 @@
+[storage]
+path = "teral"
+backend = "rocksdb"
+
+[identity]
+path = "keypair.toml"
+
+[network]
+addr = "poop"
+known_nodes = [ "127.0.0.1:8080" ]
