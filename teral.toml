@@ -1,5 +1,5 @@
 [storage]
-path = "teral"
+path = "teral/"
 backend = "rocksdb"
 
 [identity]

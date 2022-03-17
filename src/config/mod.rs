@@ -1,7 +1,5 @@
-use {
-    serde_derive::Deserialize,
-    std::{fs::read, net::SocketAddr},
-};
+use serde_derive::Deserialize;
+use std::{fs::read, net::SocketAddr};
 
 pub fn config_from_file(path: &str) -> TeralConfig {
     let bytes = read(path).expect("Could not read config file");
