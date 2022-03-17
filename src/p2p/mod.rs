@@ -12,7 +12,6 @@ use {
     serde_derive::{Deserialize, Serialize},
     std::{
         collections::{HashMap, HashSet},
-        fmt,
         io::{self, Read, Write},
         net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket},
         sync::{
@@ -39,11 +38,11 @@ enum P2PError {
     Tcp,
 }
 
-impl fmt::Display for P2PError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
+// impl fmt::Display for P2PError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         write!(f, "{:?}", self)
+//     }
+// }
 
 impl<T> From<SendError<T>> for P2PError {
     fn from(_: SendError<T>) -> Self {
@@ -111,17 +110,6 @@ where
 
 type BufferedSender<T> = Sender<Vec<T>>;
 type BufferedReceiver<T> = Receiver<Vec<T>>;
-
-#[derive(Serialize, Deserialize)]
-struct Contacts {
-    contacts: Vec<SocketAddr>,
-}
-
-impl From<Vec<SocketAddr>> for Contacts {
-    fn from(contacts: Vec<SocketAddr>) -> Self {
-        Self { contacts }
-    }
-}
 
 fn discover(
     listener: TcpListener,
