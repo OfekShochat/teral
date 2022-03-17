@@ -1,8 +1,6 @@
-use rhai::{serde::to_dynamic, Dynamic, Map, Scope};
-
 use {
     crate::{errors::Error, storage::Storage},
-    rhai::Engine,
+    rhai::{serde::to_dynamic, Dynamic, Engine, Map, Scope},
     serde_json::Value,
     std::{
         sync::{Arc, Mutex},
@@ -134,6 +132,9 @@ impl ContractExecuter {
         engine.register_fn("set", ContractStorage::set_segment);
         engine.on_print(|_| {});
 
+        let scope = &mut Scope::new();
+        scope.push_constant("storage", storage.clone());
+
         loop {
             if let Some(job) = queue.lock().unwrap().pop() {
                 match job.name.as_str() {
@@ -150,15 +151,6 @@ impl ContractExecuter {
                     }
                     _ => {
                         storage.set_curr_contract(&job.method_name);
-                        let schema = match storage.get_schema(&job.name) {
-                            Ok(schema) => schema,
-                            Err(_) => continue,
-                        };
-
-                        // is this necessary? we already verify when adding.
-                        if validate_schema(&schema, &job.req).is_err() {
-                            continue; // TODO: should report back to the main thread so that we don't take this contract again.
-                        }
 
                         let code = match storage.get_code(&job.name) {
                             Ok(code) => code,
@@ -168,10 +160,7 @@ impl ContractExecuter {
                         let ast = match engine.compile(code) {
                             Ok(ast) => ast,
                             Err(_) => continue, // should report back to the main thread so that we don't take this contract again.
-                        };
-
-                        let scope = &mut Scope::new();
-                        scope.push_constant("storage", storage.clone());
+                        }; // TODO: should have a cache for this.
 
                         let req_arg = match to_dynamic(job.req) {
                             Ok(args) => args,

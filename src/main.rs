@@ -1,8 +1,8 @@
 mod config;
 mod contracts;
+pub mod errors;
 mod p2p;
 mod storage;
-pub mod errors;
 
 fn main() {
     println!("Hello, world!");
