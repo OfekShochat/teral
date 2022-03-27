@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+
+use rhai::AST;
+
 use {
     crate::{errors::Error, storage::Storage},
     rhai::{serde::to_dynamic, Dynamic, Engine, Map, Scope},
@@ -135,6 +139,7 @@ impl ContractExecuter {
         let scope = &mut Scope::new();
         scope.push_constant("storage", storage.clone());
 
+        let mut cache = HashMap::new();
         loop {
             if let Some(job) = queue.lock().unwrap().pop() {
                 match job.name.as_str() {
@@ -143,11 +148,20 @@ impl ContractExecuter {
                             && validate_schema("name:str;code:str;schema:str", &job.req)
                                 .is_ok() =>
                     {
-                        storage.add_contract(
-                            &job.req["name"].as_str().unwrap(),
-                            &job.req["code"].as_str().unwrap(),
-                            &job.req["schema"].as_str().unwrap(),
-                        );
+                        // TODO: validate that it is compiling, if it isnt then dont add it. If it
+                        // does, add the resulting ast into cache.
+                        match engine.compile(job.req["code"].as_str().unwrap()) {
+                            Ok(ast) /* check if the publisher is the same one */ => {
+                                let name = job.req["name"].as_str().unwrap().to_string();
+                                cache.insert(name, ast);
+                                storage.add_contract(
+                                    &job.req["name"].as_str().unwrap(),
+                                    &job.req["code"].as_str().unwrap(),
+                                    &job.req["schema"].as_str().unwrap(),
+                                );
+                            }
+                            Err(_) => continue,
+                        }
                     }
                     _ => {
                         storage.set_curr_contract(&job.method_name);
