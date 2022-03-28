@@ -3,6 +3,7 @@ mod contracts;
 pub mod errors;
 mod p2p;
 mod storage;
+mod validator;
 
 fn main() {
     println!("Hello, world!");
