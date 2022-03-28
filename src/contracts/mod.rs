@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use rhai::AST;
+use serde::{Deserialize, Serialize};
 
 use {
     crate::{errors::Error, storage::Storage},
@@ -42,6 +43,11 @@ struct ContractStorage {
 
 unsafe impl Send for ContractStorage {}
 
+#[derive(Serialize, Deserialize)]
+struct ContractData {
+    author: [u8; 32],
+}
+
 impl ContractStorage {
     fn new(storage: Arc<dyn Storage>) -> Self {
         Self {
@@ -72,12 +78,14 @@ impl ContractStorage {
         }
     }
 
-    fn add_contract(&self, name: &str, code: &str, schema: &str) {
+    fn add_contract(&self, name: &str, code: &str, schema: &str, author: [u8; 32]) {
         let entrypoint_key = [name.as_bytes(), b"entrypoint"].concat();
         let schema_key = [name.as_bytes(), b"schema"].concat();
+        let author_key = [name.as_bytes(), b"author"].concat();
 
         self.storage.set(&entrypoint_key, code.as_bytes());
         self.storage.set(&schema_key, schema.as_bytes());
+        self.storage.set(&author_key, &author);
     }
 
     fn get_code(&self, name: &str) -> anyhow::Result<String> {
@@ -93,9 +101,15 @@ impl ContractStorage {
             self.storage.get(&key).ok_or(Error::GetError)?,
         )?)
     }
+
+    fn get_data(&self, name: &str) -> anyhow::Result<Vec<u8>> {
+        let key = [name.as_bytes(), b"author"].concat();
+        Ok(self.storage.get(&key).ok_or(Error::GetError)?)
+    }
 }
 
 struct ContractRequest {
+    author: [u8; 32], // provided already verified
     name: String,
     method_name: String,
     req: Value,
@@ -139,7 +153,7 @@ impl ContractExecuter {
         let scope = &mut Scope::new();
         scope.push_constant("storage", storage.clone());
 
-        let mut cache = HashMap::new();
+        let mut cache = HashMap::new(); // TODO: init cache from db
         loop {
             if let Some(job) = queue.lock().unwrap().pop() {
                 match job.name.as_str() {
@@ -148,16 +162,21 @@ impl ContractExecuter {
                             && validate_schema("name:str;code:str;schema:str", &job.req)
                                 .is_ok() =>
                     {
-                        // TODO: validate that it is compiling, if it isnt then dont add it. If it
-                        // does, add the resulting ast into cache.
+                        let cache_entry = cache.get(&job.name);
+                        let original_author = storage.get_data(&job.name).unwrap();
+                        if cache_entry.is_some() && job.author.to_vec() != original_author {
+                            continue;
+                        }
+
                         match engine.compile(job.req["code"].as_str().unwrap()) {
-                            Ok(ast) /* check if the publisher is the same one */ => {
+                            Ok(ast) => {
                                 let name = job.req["name"].as_str().unwrap().to_string();
                                 cache.insert(name, ast);
                                 storage.add_contract(
                                     &job.req["name"].as_str().unwrap(),
                                     &job.req["code"].as_str().unwrap(),
                                     &job.req["schema"].as_str().unwrap(),
+                                    job.author,
                                 );
                             }
                             Err(_) => continue,
@@ -166,15 +185,7 @@ impl ContractExecuter {
                     _ => {
                         storage.set_curr_contract(&job.method_name);
 
-                        let code = match storage.get_code(&job.name) {
-                            Ok(code) => code,
-                            Err(_) => continue,
-                        };
-
-                        let ast = match engine.compile(code) {
-                            Ok(ast) => ast,
-                            Err(_) => continue, // should report back to the main thread so that we don't take this contract again.
-                        }; // TODO: should have a cache for this.
+                        let ast = cache.get(&job.name).unwrap();
 
                         let req_arg = match to_dynamic(job.req) {
                             Ok(args) => args,
