@@ -1,4 +1,4 @@
-use crate::config::{TeralConfig, config_from_file};
+use crate::config::{config_from_file, TeralConfig};
 
 pub struct Validator {
     config: TeralConfig,

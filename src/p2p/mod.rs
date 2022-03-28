@@ -271,11 +271,14 @@ impl GossipService {
                             })
                             .collect();
 
-                        valid_messages
-                            .iter()
-                            .for_each(|data| sender.send(
-                                GossipMessage { author: data.1, message: data.0.to_vec() }
-                            ).unwrap());
+                        valid_messages.iter().for_each(|data| {
+                            sender
+                                .send(GossipMessage {
+                                    author: data.1,
+                                    message: data.0.to_vec(),
+                                })
+                                .unwrap()
+                        });
                     }
                 }
             })
