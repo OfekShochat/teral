@@ -44,6 +44,8 @@ enum P2PError {
 //     }
 // }
 
+use std::io::Bytes;
+
 impl<T> From<SendError<T>> for P2PError {
     fn from(_: SendError<T>) -> Self {
         Self::Sender
@@ -206,6 +208,11 @@ impl ClusterInfo {
     }
 }
 
+pub struct GossipMessage {
+    author: [u8; 32],
+    message: Vec<u8>,
+}
+
 pub struct GossipService {
     threads: Vec<JoinHandle<()>>,
 }
@@ -215,7 +222,7 @@ impl GossipService {
         cluster_info: Arc<ClusterInfo>,
         socket: UdpSocket,
         exit: &Arc<AtomicBool>,
-    ) -> (Self, Receiver<Vec<u8>>) {
+    ) -> (Self, Receiver<GossipMessage>) {
         let socket = Arc::new(socket);
 
         let mut gossip = GossipService { threads: vec![] };
@@ -239,7 +246,7 @@ impl GossipService {
 
     fn listen(
         receiver: BufferedReceiver<Message>,
-        sender: Sender<Vec<u8>>,
+        sender: Sender<GossipMessage>,
         exit: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         thread::Builder::new()
@@ -257,7 +264,7 @@ impl GossipService {
                                     && !logs.contains_key(&msg.timestamp)
                                 {
                                     logs.insert(msg.timestamp, msg.signature);
-                                    Some(&msg.data)
+                                    Some((&msg.data, msg.pubkey.to_bytes()))
                                 } else {
                                     None
                                 }
@@ -266,7 +273,9 @@ impl GossipService {
 
                         valid_messages
                             .iter()
-                            .for_each(|data| sender.send(data.to_vec()).unwrap())
+                            .for_each(|data| sender.send(
+                                GossipMessage { author: data.1, message: data.0.to_vec() }
+                            ).unwrap());
                     }
                 }
             })
