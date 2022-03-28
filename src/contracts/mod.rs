@@ -144,7 +144,6 @@ impl ContractExecuter {
         engine.on_print(|_| {});
 
         let scope = &mut Scope::new();
-        scope.push_constant("storage", storage.clone());
 
         let mut cache = HashMap::new(); // TODO: init cache from db
         loop {
@@ -177,6 +176,7 @@ impl ContractExecuter {
                     }
                     _ => {
                         storage.set_curr_contract(&job.method_name);
+                        scope.push_constant("storage", storage.clone());
 
                         let ast = cache.get(&job.name).unwrap();
 
@@ -196,6 +196,7 @@ impl ContractExecuter {
                                 &mut [req_arg],
                             )
                             .unwrap();
+                        scope.clear();
                     }
                 }
             }
