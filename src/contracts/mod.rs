@@ -157,7 +157,7 @@ impl ContractExecuter {
                     {
                         let cache_entry = cache.get(&job.name);
                         let original_author = storage.get_author(&job.name).unwrap();
-                        if cache_entry.is_some() && job.author.to_vec() != original_author {
+                        if job.author.to_vec() != original_author {
                             continue;
                         }
 
