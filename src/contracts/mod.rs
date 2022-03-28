@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use {
     crate::{errors::Error, storage::Storage},
@@ -17,8 +20,8 @@ fn validate_schema(schema: &str, req: &Value) -> anyhow::Result<()> {
     // schema example: "from:str;to:str;amount:i64"
     let values = schema.split(";");
     for v in values {
-        let (name, typ) = v.split_once(":").ok_or(Error::SchemaError)?;
-        let value = req.get(name).ok_or(Error::SchemaError)?;
+        let (name, typ) = v.split_once(":").ok_or(Error::Schema)?;
+        let value = req.get(name).ok_or(Error::Schema)?;
 
         let is_ok = match typ {
             "i64" => value.is_i64(),
@@ -27,7 +30,7 @@ fn validate_schema(schema: &str, req: &Value) -> anyhow::Result<()> {
             _ => false,
         };
         if !is_ok {
-            return Err(Error::SchemaError.into());
+            return Err(Error::Schema.into());
         }
     }
     Ok(())
@@ -84,20 +87,20 @@ impl ContractStorage {
     fn get_code(&self, name: &str) -> anyhow::Result<String> {
         let key = [name.as_bytes(), b"entrypoint"].concat();
         Ok(String::from_utf8(
-            self.storage.get(&key).ok_or(Error::GetError)?,
+            self.storage.get(&key).ok_or(Error::Get)?,
         )?)
     }
 
     fn get_schema(&self, name: &str) -> anyhow::Result<String> {
         let key = [name.as_bytes(), b"schema"].concat();
         Ok(String::from_utf8(
-            self.storage.get(&key).ok_or(Error::GetError)?,
+            self.storage.get(&key).ok_or(Error::Get)?,
         )?)
     }
 
     fn get_author(&self, name: &str) -> anyhow::Result<Vec<u8>> {
         let key = [name.as_bytes(), b"author"].concat();
-        Ok(self.storage.get(&key).ok_or(Error::GetError)?)
+        Ok(self.storage.get(&key).ok_or(Error::Get)?)
     }
 }
 
@@ -114,7 +117,7 @@ struct ContractExecuter {
 }
 
 impl ContractExecuter {
-    pub fn new(storage: Arc<dyn Storage>, thread_number: usize) -> Self {
+    pub fn new(storage: Arc<dyn Storage>, exit: Arc<AtomicBool>, thread_number: usize) -> Self {
         assert!(thread_number > 0);
 
         let storage = ContractStorage::new(storage);
@@ -123,11 +126,25 @@ impl ContractExecuter {
         let handlers = (0..thread_number)
             .map(|i| {
                 let queue = queue.clone();
-                let storage = storage.clone();
+                let mut storage = storage.clone();
+                let exit = exit.clone();
                 thread::Builder::new()
                     .name(format!("contract-worker({})", i))
                     .spawn(move || {
-                        Self::executer_thread(queue, storage);
+                        loop {
+                            if exit.load(Ordering::Relaxed) {
+                                if i == 0 {
+                                    // save to db
+                                }
+                                break;
+                            }
+                            match Self::executer(&queue, &mut storage) {
+                                Ok(_) => {}
+                                Err(Error::ContractIrrecoverable) => {} // should diffrentiate between error types to see
+                                // if we need to send anything to the main thread.
+                                _ => {}
+                            }
+                        }
                     })
                     .unwrap()
             })
@@ -136,7 +153,10 @@ impl ContractExecuter {
         Self { handlers, queue }
     }
 
-    fn executer_thread(queue: Arc<Mutex<Vec<ContractRequest>>>, mut storage: ContractStorage) {
+    fn executer(
+        queue: &Arc<Mutex<Vec<ContractRequest>>>,
+        storage: &mut ContractStorage,
+    ) -> Result<(), Error> {
         let mut engine = Engine::new();
         engine.register_type::<ContractStorage>();
         engine.register_fn("get", ContractStorage::get_segment);
@@ -146,60 +166,57 @@ impl ContractExecuter {
         let scope = &mut Scope::new();
 
         let mut cache = HashMap::new(); // TODO: init cache from db
-        loop {
-            if let Some(job) = queue.lock().unwrap().pop() {
-                match job.name.as_str() {
-                    "native"
-                        if job.method_name == "add"
-                            && validate_schema("name:str;code:str;schema:str", &job.req)
-                                .is_ok() =>
-                    {
-                        let cache_entry = cache.get(&job.name);
-                        let original_author = storage.get_author(&job.name).unwrap();
-                        if job.author.to_vec() != original_author {
-                            continue;
-                        }
-
-                        match engine.compile(job.req["code"].as_str().unwrap()) {
-                            Ok(ast) => {
-                                let name = job.req["name"].as_str().unwrap().to_string();
-                                cache.insert(name, ast);
-                                storage.add_contract(
-                                    &job.req["name"].as_str().unwrap(),
-                                    &job.req["code"].as_str().unwrap(),
-                                    &job.req["schema"].as_str().unwrap(),
-                                    job.author,
-                                );
-                            }
-                            Err(_) => continue,
-                        }
+        if let Some(job) = queue.lock().unwrap().pop() {
+            match job.name.as_str() {
+                "native"
+                    if job.method_name == "add"
+                        && validate_schema("name:str;code:str;schema:str", &job.req).is_ok() =>
+                {
+                    let original_author = storage.get_author(&job.name).unwrap();
+                    if job.author.to_vec() != original_author {
+                        return Err(Error::ContractIrrecoverable);
                     }
-                    _ => {
-                        storage.set_curr_contract(&job.method_name);
-                        scope.push_constant("storage", storage.clone());
 
-                        let ast = cache.get(&job.name).unwrap();
-
-                        let req_arg = match to_dynamic(job.req) {
-                            Ok(args) => args,
-                            Err(_) => continue,
-                        };
-
-                        let _ = engine
-                            .call_fn_raw(
-                                scope,
-                                &ast,
-                                false,
-                                false,
-                                job.method_name,
-                                None,
-                                &mut [req_arg],
-                            )
-                            .unwrap();
-                        scope.clear();
+                    match engine.compile(job.req["code"].as_str().unwrap()) {
+                        Ok(ast) => {
+                            let name = job.req["name"].as_str().unwrap().to_string();
+                            cache.insert(name, ast);
+                            storage.add_contract(
+                                &job.req["name"].as_str().unwrap(),
+                                &job.req["code"].as_str().unwrap(),
+                                &job.req["schema"].as_str().unwrap(),
+                                job.author,
+                            );
+                        }
+                        Err(_) => return Err(Error::ContractIrrecoverable),
                     }
+                }
+                _ => {
+                    storage.set_curr_contract(&job.method_name);
+                    scope.push_constant("storage", storage.clone());
+
+                    let ast = cache.get(&job.name).unwrap();
+
+                    let req_arg = match to_dynamic(job.req) {
+                        Ok(args) => args,
+                        Err(_) => return Err(Error::ContractRecoverable),
+                    };
+
+                    let _ = engine
+                        .call_fn_raw(
+                            scope,
+                            &ast,
+                            false,
+                            false,
+                            job.method_name,
+                            None,
+                            &mut [req_arg],
+                        )
+                        .unwrap();
+                    scope.clear();
                 }
             }
         }
+        Ok(())
     }
 }
