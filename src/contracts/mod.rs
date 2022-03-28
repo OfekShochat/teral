@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 
-use rhai::AST;
-use serde::{Deserialize, Serialize};
-
 use {
     crate::{errors::Error, storage::Storage},
     rhai::{serde::to_dynamic, Dynamic, Engine, Map, Scope},
+    serde::{Deserialize, Serialize},
     serde_json::Value,
     std::{
         sync::{Arc, Mutex},
@@ -42,11 +40,6 @@ struct ContractStorage {
 }
 
 unsafe impl Send for ContractStorage {}
-
-#[derive(Serialize, Deserialize)]
-struct ContractData {
-    author: [u8; 32],
-}
 
 impl ContractStorage {
     fn new(storage: Arc<dyn Storage>) -> Self {
@@ -102,7 +95,7 @@ impl ContractStorage {
         )?)
     }
 
-    fn get_data(&self, name: &str) -> anyhow::Result<Vec<u8>> {
+    fn get_author(&self, name: &str) -> anyhow::Result<Vec<u8>> {
         let key = [name.as_bytes(), b"author"].concat();
         Ok(self.storage.get(&key).ok_or(Error::GetError)?)
     }
@@ -163,7 +156,7 @@ impl ContractExecuter {
                                 .is_ok() =>
                     {
                         let cache_entry = cache.get(&job.name);
-                        let original_author = storage.get_data(&job.name).unwrap();
+                        let original_author = storage.get_author(&job.name).unwrap();
                         if cache_entry.is_some() && job.author.to_vec() != original_author {
                             continue;
                         }
