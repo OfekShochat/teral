@@ -150,6 +150,8 @@ fn discover(
     Ok(discovered)
 }
 
+// fn block_sync(listener: TcpListener, cluster_info: Arc<ClusterInfo>, chain: &mut Chain)
+
 fn send_udp(socket: &UdpSocket, addr: &SocketAddr, message: Message) -> io::Result<usize> {
     socket.send_to(&serialize(message).unwrap(), addr)
 }
