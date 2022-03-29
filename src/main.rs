@@ -4,6 +4,7 @@ pub mod errors;
 mod p2p;
 mod storage;
 mod validator;
+mod chain;
 
 fn main() {
     println!("Hello, world!");
