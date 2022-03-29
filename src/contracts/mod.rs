@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{atomic::{AtomicBool, Ordering}, mpsc::{Receiver, channel}},
 };
 
 use {
@@ -116,18 +116,27 @@ struct ContractExecuter {
     queue: Arc<Mutex<Vec<ContractRequest>>>,
 }
 
+struct ContractResponse {
+    id: i64,
+    failed: bool,
+}
+
 impl ContractExecuter {
-    pub fn new(storage: Arc<dyn Storage>, exit: Arc<AtomicBool>, thread_number: usize) -> Self {
+    pub fn new(storage: Arc<dyn Storage>, exit: Arc<AtomicBool>, thread_number: usize) -> (Self, Receiver<ContractResponse>) {
         assert!(thread_number > 0);
 
         let storage = ContractStorage::new(storage);
 
         let queue = Arc::new(Mutex::new(Vec::with_capacity(CONTRACT_QUEUE_SIZE)));
+
+        let (sender, receiver) = channel();
+
         let handlers = (0..thread_number)
             .map(|i| {
                 let queue = queue.clone();
                 let mut storage = storage.clone();
                 let exit = exit.clone();
+                let sender = sender.clone();
                 thread::Builder::new()
                     .name(format!("contract-worker({})", i))
                     .spawn(move || {
@@ -138,10 +147,10 @@ impl ContractExecuter {
                                 }
                                 break;
                             }
-                            match Self::executer(&queue, &mut storage) {
+                            match Self::executer_thread(&queue, &mut storage) {
                                 Ok(_) => {}
-                                Err(Error::ContractIrrecoverable) => {} // should diffrentiate between error types to see
-                                // if we need to send anything to the main thread.
+                                Err(Error::ContractIrrecoverable) => sender.send(ContractResponse { failed: true, id: 100 }).unwrap(),
+                                Err(Error::ContractRecoverable) => {}
                                 _ => {}
                             }
                         }
@@ -150,10 +159,10 @@ impl ContractExecuter {
             })
             .collect();
 
-        Self { handlers, queue }
+        (Self { handlers, queue }, receiver)
     }
 
-    fn executer(
+    fn executer_thread(
         queue: &Arc<Mutex<Vec<ContractRequest>>>,
         storage: &mut ContractStorage,
     ) -> Result<(), Error> {
@@ -166,7 +175,7 @@ impl ContractExecuter {
         let scope = &mut Scope::new();
 
         let mut cache = HashMap::new(); // TODO: init cache from db
-        if let Some(job) = queue.lock().unwrap().pop() {
+        if let Some(job) = queue.lock().unwrap().pop() { // do this from where we call this function.
             match job.name.as_str() {
                 "native"
                     if job.method_name == "add"
@@ -202,7 +211,7 @@ impl ContractExecuter {
                         Err(_) => return Err(Error::ContractRecoverable),
                     };
 
-                    let _ = engine
+                    if engine
                         .call_fn_raw(
                             scope,
                             &ast,
@@ -212,11 +221,16 @@ impl ContractExecuter {
                             None,
                             &mut [req_arg],
                         )
-                        .unwrap();
+                        .is_err()
+                    {
+                        return Err(Error::ContractIrrecoverable);
+                    }
                     scope.clear();
                 }
             }
+            Ok(())
+        } else {
+            Err(Error::ContractIrrecoverable)
         }
-        Ok(())
     }
 }
