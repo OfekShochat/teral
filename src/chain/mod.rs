@@ -2,8 +2,26 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use serde_derive::{Serialize, Deserialize};
+use sha3::{Sha3_256, Digest};
 
 use crate::storage::Storage;
+
+fn hash_requests(recipts: &[ContractRecipt], time: i64, output: &mut [u8]) {
+    let mut hasher = Sha3_256::new();
+    recipts.into_iter().for_each(|req| {
+        let mut s = String::with_capacity(50);
+        s.push_str(&req.contract_name);
+        s.push_str(&req.contract_method);
+        s.push_str(&serde_json::to_string(&req.req).unwrap());
+        // TODO: somehow make this with AsRef<[u8]>. Currently doing this does not work because
+        // of ownership.
+
+        hasher.update(s);
+    });
+    hasher.update(time.to_be_bytes());
+
+    output.copy_from_slice(&hasher.finalize());
+}
 
 #[derive(Serialize, Deserialize)]
 struct ContractRecipt {
