@@ -106,11 +106,6 @@ impl ContractStorage {
         let key = [name.as_bytes(), b"author"].concat();
         Ok(self.storage.get(&key).ok_or(Error::Get)?)
     }
-
-    fn get_cache(&self) -> HashMap<String, AST> {
-        let cache_bytes = self.storage.get_or_set(b"contract_cache", b"{}");
-        HashMap::new()
-    }
 }
 
 #[derive(Clone)]
@@ -152,7 +147,7 @@ impl ContractExecuter {
                 thread::Builder::new()
                     .name(format!("contract-worker({})", i))
                     .spawn(move || {
-                        let mut cache = storage.get_cache();
+                        let mut cache = HashMap::new();
 
                         let mut engine = Engine::new();
                         engine.register_type::<ContractStorage>();
@@ -234,7 +229,18 @@ impl ContractExecuter {
                 storage.set_curr_contract(&job.method_name);
                 scope.push_constant("storage", storage.clone());
 
-                let ast = cache.get(&job.name).unwrap();
+                let ast = if let Some(ast) = cache.get(&job.name) {
+                    ast.clone()
+                } else if let Ok(code) = storage.get_code(&job.name) {
+                    let ast = match engine.compile(code) {
+                        Ok(ast) => ast,
+                        Err(_) => return Err(()),
+                    };
+                    cache.insert(job.name, ast.clone());
+                    ast
+                } else {
+                    return Err(());
+                };
 
                 let req_arg = match to_dynamic(job.req) {
                     Ok(args) => args,
