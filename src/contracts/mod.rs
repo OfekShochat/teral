@@ -105,8 +105,8 @@ impl ContractStorage {
     }
 }
 
-#[derive(Clone)]
-struct ContractRequest {
+#[derive(Debug, Clone)]
+pub struct ContractRequest {
     author: [u8; 32], // provided already verified
     name: String,
     method_name: String,
@@ -114,15 +114,27 @@ struct ContractRequest {
     id: usize,
 }
 
-struct ContractExecuter {
-    handlers: Vec<JoinHandle<()>>,
-    queue: Arc<Mutex<Vec<ContractRequest>>>,
-    responder: Receiver<ContractResponse>,
+impl ContractRequest {
+    pub fn new(author: [u8; 32], name: String, method_name: String, req: Value, id: usize) -> Self {
+        Self {
+            author,
+            name,
+            method_name,
+            req,
+            id,
+        }
+    }
 }
 
 struct ContractResponse {
     id: usize,
     ok: bool,
+}
+
+pub struct ContractExecuter {
+    handlers: Vec<JoinHandle<()>>,
+    queue: Arc<Mutex<Vec<ContractRequest>>>,
+    responder: Receiver<ContractResponse>,
 }
 
 impl ContractExecuter {
@@ -157,9 +169,6 @@ impl ContractExecuter {
                         let scope = &mut Scope::new();
                         loop {
                             if exit.load(Ordering::Relaxed) {
-                                if i == 0 {
-                                    // save to db
-                                }
                                 break;
                             }
                             if let Some(job) = queue.lock().unwrap().pop() {
@@ -263,8 +272,10 @@ impl ContractExecuter {
     pub fn execute_multiple(&self, requests: &[ContractRequest]) -> Vec<ContractRequest> {
         let mut out = Vec::with_capacity(requests.len());
 
-        let mut locked_queue = self.queue.lock().unwrap();
-        requests.iter().for_each(|r| locked_queue.push(r.clone()));
+        {
+            let mut locked_queue = self.queue.lock().unwrap();
+            requests.iter().for_each(|r| locked_queue.push(r.clone()));
+        }
 
         // TODO: time limit here?
         for _ in 0..requests.len() {
