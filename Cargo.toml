@@ -21,7 +21,7 @@ chrono = "0.4"
 ed25519-consensus = "1.2"
 rhai = { version = "1.5", features = ["serde"] }
 
-rocksdb = { version = "0.17", optional = true }
+rocksdb = { version = "0.18", optional = true }
 
 [features]
 default = [ "rocksdb-backend" ]
