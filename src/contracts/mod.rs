@@ -166,26 +166,15 @@ impl ContractExecuter {
                                 break;
                             }
                             if let Some(job) = queue.lock().unwrap().pop() {
-                                match Self::executer_thread(
+                                let ok = Self::executer_thread(
                                     &mut storage,
                                     &mut cache,
                                     scope,
                                     &engine,
                                     job.clone(), // probably we dont need this clone
-                                ) {
-                                    Ok(()) => sender
-                                        .send(ContractResponse {
-                                            id: job.id,
-                                            ok: true,
-                                        })
-                                        .unwrap(),
-                                    Err(()) => sender
-                                        .send(ContractResponse {
-                                            id: job.id,
-                                            ok: false,
-                                        })
-                                        .unwrap(),
-                                }
+                                )
+                                .is_ok();
+                                sender.send(ContractResponse { id: job.id, ok }).unwrap();
                                 scope.clear();
                             }
                         }
