@@ -155,6 +155,14 @@ impl ContractExecuter {
                     .name(format!("contract-worker({})", i))
                     .spawn(move || {
                         let mut cache = storage.get_cache();
+
+                        let mut engine = Engine::new();
+                        engine.register_type::<ContractStorage>();
+                        engine.register_fn("get", ContractStorage::get_segment);
+                        engine.register_fn("set", ContractStorage::set_segment);
+                        engine.on_print(|_| {});
+
+                        let scope = &mut Scope::new();
                         loop {
                             if exit.load(Ordering::Relaxed) {
                                 if i == 0 {
@@ -162,9 +170,22 @@ impl ContractExecuter {
                                 }
                                 break;
                             }
-                            match Self::executer_thread(&queue, &mut storage, &mut cache) {
-                                Ok(id) => sender.send(ContractResponse { id, ok: true }).unwrap(),
-                                Err(id) => sender.send(ContractResponse { id, ok: false }).unwrap(),
+                            if let Some(job) = queue.lock().unwrap().pop() {
+                                match Self::executer_thread(
+                                    &mut storage,
+                                    &mut cache,
+                                    scope,
+                                    &engine,
+                                    job,
+                                ) {
+                                    Ok(id) => {
+                                        sender.send(ContractResponse { id, ok: true }).unwrap()
+                                    }
+                                    Err(id) => {
+                                        sender.send(ContractResponse { id, ok: false }).unwrap()
+                                    }
+                                }
+                                scope.clear();
                             }
                         }
                     })
@@ -176,75 +197,64 @@ impl ContractExecuter {
     }
 
     fn executer_thread(
-        queue: &Arc<Mutex<Vec<ContractRequest>>>,
         storage: &mut ContractStorage,
         cache: &mut HashMap<String, AST>,
+        scope: &mut Scope,
+        engine: &Engine,
+        job: ContractRequest,
     ) -> Result<i64, i64> {
-        let mut engine = Engine::new();
-        engine.register_type::<ContractStorage>();
-        engine.register_fn("get", ContractStorage::get_segment);
-        engine.register_fn("set", ContractStorage::set_segment);
-        engine.on_print(|_| {});
-
-        let scope = &mut Scope::new();
-
-        if let Some(job) = queue.lock().unwrap().pop() {
-            // do this from where we call this function.
-            match job.name.as_str() {
-                "native"
-                    if job.method_name == "add"
-                        && validate_schema("name:str;code:str;schema:str", &job.req).is_ok() =>
-                {
-                    let original_author = storage.get_author(&job.name).unwrap();
-                    if job.author.to_vec() != original_author {
-                        return Err(job.id);
-                    }
-
-                    match engine.compile(job.req["code"].as_str().unwrap()) {
-                        Ok(ast) => {
-                            let name = job.req["name"].as_str().unwrap().to_string();
-                            cache.insert(name, ast);
-                            storage.add_contract(
-                                &job.req["name"].as_str().unwrap(),
-                                &job.req["code"].as_str().unwrap(),
-                                &job.req["schema"].as_str().unwrap(),
-                                job.author,
-                            );
-                        }
-                        Err(_) => return Err(job.id),
-                    }
+        // do this from where we call this function.
+        match job.name.as_str() {
+            "native"
+                if job.method_name == "add"
+                    && validate_schema("name:str;code:str;schema:str", &job.req).is_ok() =>
+            {
+                let original_author = storage.get_author(&job.name).unwrap();
+                if job.author.to_vec() != original_author {
+                    return Err(job.id);
                 }
-                _ => {
-                    storage.set_curr_contract(&job.method_name);
-                    scope.push_constant("storage", storage.clone());
 
-                    let ast = cache.get(&job.name).unwrap();
-
-                    let req_arg = match to_dynamic(job.req) {
-                        Ok(args) => args,
-                        Err(_) => return Err(job.id),
-                    };
-
-                    if engine
-                        .call_fn_raw(
-                            scope,
-                            &ast,
-                            false,
-                            false,
-                            job.method_name,
-                            None,
-                            &mut [req_arg],
-                        )
-                        .is_err()
-                    {
-                        return Err(job.id);
+                match engine.compile(job.req["code"].as_str().unwrap()) {
+                    Ok(ast) => {
+                        let name = job.req["name"].as_str().unwrap().to_string();
+                        cache.insert(name, ast);
+                        storage.add_contract(
+                            &job.req["name"].as_str().unwrap(),
+                            &job.req["code"].as_str().unwrap(),
+                            &job.req["schema"].as_str().unwrap(),
+                            job.author,
+                        );
                     }
-                    scope.clear();
+                    Err(_) => return Err(job.id),
                 }
             }
-            Ok(job.id)
-        } else {
-            Err(0)
+            _ => {
+                storage.set_curr_contract(&job.method_name);
+                scope.push_constant("storage", storage.clone());
+
+                let ast = cache.get(&job.name).unwrap();
+
+                let req_arg = match to_dynamic(job.req) {
+                    Ok(args) => args,
+                    Err(_) => return Err(job.id),
+                };
+
+                if engine
+                    .call_fn_raw(
+                        scope,
+                        &ast,
+                        false,
+                        false,
+                        job.method_name,
+                        None,
+                        &mut [req_arg],
+                    )
+                    .is_err()
+                {
+                    return Err(job.id);
+                }
+            }
         }
+        Ok(job.id)
     }
 }
