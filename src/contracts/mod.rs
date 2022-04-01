@@ -22,9 +22,9 @@ const CONTRACT_QUEUE_SIZE: usize = 1024;
 
 fn validate_schema(schema: &str, req: &Value) -> anyhow::Result<()> {
     // schema example: "from:str;to:str;amount:i64"
-    let values = schema.split(";");
+    let values = schema.split(';');
     for v in values {
-        let (name, typ) = v.split_once(":").ok_or(Error::Schema)?;
+        let (name, typ) = v.split_once(';').ok_or(Error::Schema)?;
         let value = req.get(name).ok_or(Error::Schema)?;
 
         let is_ok = match typ {
@@ -134,7 +134,9 @@ impl ContractExecuter {
 
         let storage = ContractStorage::new(storage);
 
-        let queue = Arc::new(Mutex::new(Vec::<ContractRequest>::with_capacity(CONTRACT_QUEUE_SIZE))); // if we resolve @177 we dont need this generic
+        let queue = Arc::new(Mutex::new(Vec::<ContractRequest>::with_capacity(
+            CONTRACT_QUEUE_SIZE,
+        ))); // if we resolve @177 we dont need this generic
 
         let (sender, receiver) = channel();
 
@@ -171,12 +173,18 @@ impl ContractExecuter {
                                     &engine,
                                     job.clone(), // probably we dont need this clone
                                 ) {
-                                    Ok(()) => {
-                                        sender.send(ContractResponse { id: job.id, ok: true }).unwrap()
-                                    }
-                                    Err(()) => {
-                                        sender.send(ContractResponse { id: job.id, ok: false }).unwrap()
-                                    }
+                                    Ok(()) => sender
+                                        .send(ContractResponse {
+                                            id: job.id,
+                                            ok: true,
+                                        })
+                                        .unwrap(),
+                                    Err(()) => sender
+                                        .send(ContractResponse {
+                                            id: job.id,
+                                            ok: false,
+                                        })
+                                        .unwrap(),
                                 }
                                 scope.clear();
                             }
@@ -216,9 +224,9 @@ impl ContractExecuter {
                         let name = job.req["name"].as_str().unwrap().to_string();
                         cache.insert(name, ast);
                         storage.add_contract(
-                            &job.req["name"].as_str().unwrap(),
-                            &job.req["code"].as_str().unwrap(),
-                            &job.req["schema"].as_str().unwrap(),
+                            job.req["name"].as_str().unwrap(),
+                            job.req["code"].as_str().unwrap(),
+                            job.req["schema"].as_str().unwrap(),
                             job.author,
                         );
                     }

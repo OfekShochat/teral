@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
+use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
-use serde_derive::{Serialize, Deserialize};
-use sha3::{Sha3_256, Digest};
+use sha3::{Digest, Sha3_256};
 
 use crate::storage::Storage;
 
-fn hash_requests(recipts: &[ContractRecipt], time: i64, output: &mut [u8]) {
+fn hash_recipts(recipts: &[ContractRecipt], time: i64, output: &mut [u8]) {
     let mut hasher = Sha3_256::new();
-    recipts.into_iter().for_each(|req| {
+    recipts.iter().for_each(|req| {
         let mut s = String::with_capacity(50);
         s.push_str(&req.contract_name);
         s.push_str(&req.contract_method);
@@ -65,5 +65,4 @@ impl BlockStorage {
 
 pub struct Chain {
     storage: BlockStorage,
-
 }
