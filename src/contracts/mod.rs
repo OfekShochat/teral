@@ -1,17 +1,14 @@
-use std::{
-    collections::HashMap,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc::{channel, Receiver},
-    },
-};
-
-use rhai::AST;
-
 use {
     crate::{errors::Error, storage::Storage},
-    rhai::{serde::to_dynamic, Dynamic, Engine, Map, Scope},
+    rhai::{serde::to_dynamic, Dynamic, Engine, Map, Scope, AST},
     serde_json::Value,
+    std::{
+        collections::HashMap,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            mpsc::{channel, Receiver},
+        },
+    },
     std::{
         sync::{Arc, Mutex},
         thread::{self, JoinHandle},
@@ -171,7 +168,7 @@ impl ContractExecuter {
                                     &mut cache,
                                     scope,
                                     &engine,
-                                    job.clone(), // probably we dont need this clone
+                                    job.clone(),
                                 )
                                 .is_ok();
                                 sender.send(ContractResponse { id: job.id, ok }).unwrap();
