@@ -113,35 +113,33 @@ impl ContractStorage {
     }
 }
 
+#[derive(Clone)]
 struct ContractRequest {
     author: [u8; 32], // provided already verified
     name: String,
     method_name: String,
     req: Value,
-    id: i64,
+    id: usize,
 }
 
 struct ContractExecuter {
     handlers: Vec<JoinHandle<()>>,
     queue: Arc<Mutex<Vec<ContractRequest>>>,
+    responder: Receiver<ContractResponse>,
 }
 
 struct ContractResponse {
-    id: i64,
+    id: usize,
     ok: bool,
 }
 
 impl ContractExecuter {
-    pub fn new(
-        storage: Arc<dyn Storage>,
-        exit: Arc<AtomicBool>,
-        thread_number: usize,
-    ) -> (Self, Receiver<ContractResponse>) {
+    pub fn new(storage: Arc<dyn Storage>, exit: Arc<AtomicBool>, thread_number: usize) -> Self {
         assert!(thread_number > 0);
 
         let storage = ContractStorage::new(storage);
 
-        let queue = Arc::new(Mutex::new(Vec::with_capacity(CONTRACT_QUEUE_SIZE)));
+        let queue = Arc::new(Mutex::new(Vec::<ContractRequest>::with_capacity(CONTRACT_QUEUE_SIZE))); // if we resolve @177 we dont need this generic
 
         let (sender, receiver) = channel();
 
@@ -176,13 +174,13 @@ impl ContractExecuter {
                                     &mut cache,
                                     scope,
                                     &engine,
-                                    job,
+                                    job.clone(), // probably we dont need this clone
                                 ) {
-                                    Ok(id) => {
-                                        sender.send(ContractResponse { id, ok: true }).unwrap()
+                                    Ok(()) => {
+                                        sender.send(ContractResponse { id: job.id, ok: true }).unwrap()
                                     }
-                                    Err(id) => {
-                                        sender.send(ContractResponse { id, ok: false }).unwrap()
+                                    Err(()) => {
+                                        sender.send(ContractResponse { id: job.id, ok: false }).unwrap()
                                     }
                                 }
                                 scope.clear();
@@ -193,7 +191,11 @@ impl ContractExecuter {
             })
             .collect();
 
-        (Self { handlers, queue }, receiver)
+        Self {
+            handlers,
+            queue,
+            responder: receiver,
+        }
     }
 
     fn executer_thread(
@@ -202,7 +204,7 @@ impl ContractExecuter {
         scope: &mut Scope,
         engine: &Engine,
         job: ContractRequest,
-    ) -> Result<i64, i64> {
+    ) -> Result<(), ()> {
         // do this from where we call this function.
         match job.name.as_str() {
             "native"
@@ -211,7 +213,7 @@ impl ContractExecuter {
             {
                 let original_author = storage.get_author(&job.name).unwrap();
                 if job.author.to_vec() != original_author {
-                    return Err(job.id);
+                    return Err(());
                 }
 
                 match engine.compile(job.req["code"].as_str().unwrap()) {
@@ -225,7 +227,7 @@ impl ContractExecuter {
                             job.author,
                         );
                     }
-                    Err(_) => return Err(job.id),
+                    Err(_) => return Err(()),
                 }
             }
             _ => {
@@ -236,7 +238,7 @@ impl ContractExecuter {
 
                 let req_arg = match to_dynamic(job.req) {
                     Ok(args) => args,
-                    Err(_) => return Err(job.id),
+                    Err(_) => return Err(()),
                 };
 
                 if engine
@@ -251,10 +253,26 @@ impl ContractExecuter {
                     )
                     .is_err()
                 {
-                    return Err(job.id);
+                    return Err(());
                 }
             }
         }
-        Ok(job.id)
+        Ok(())
+    }
+
+    pub fn execute_multiple(&self, requests: &[ContractRequest]) -> Vec<ContractRequest> {
+        let mut out = Vec::with_capacity(requests.len());
+
+        let mut locked_queue = self.queue.lock().unwrap();
+        requests.iter().for_each(|r| locked_queue.push(r.clone()));
+
+        // TODO: time limit here?
+        for _ in 0..requests.len() {
+            let recipt = self.responder.recv().unwrap();
+            if recipt.ok {
+                out.push(requests[recipt.id].clone()); // so many clones...
+            }
+        }
+        out
     }
 }
