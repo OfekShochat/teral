@@ -19,7 +19,7 @@ rand = "0.8"
 sha3 = "0.10"
 chrono = "0.4"
 ed25519-consensus = "1.2"
-rhai = { version = "1.5", features = ["serde"] }
+rhai = { version = "1.6", features = ["serde"] }
 
 rocksdb = { version = "0.17", optional = true }
 
