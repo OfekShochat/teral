@@ -1,12 +1,16 @@
 use std::{
     collections::HashMap,
-    sync::{atomic::{AtomicBool, Ordering}, mpsc::{Receiver, channel}},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{channel, Receiver},
+    },
 };
+
+use rhai::AST;
 
 use {
     crate::{errors::Error, storage::Storage},
     rhai::{serde::to_dynamic, Dynamic, Engine, Map, Scope},
-    serde::{Deserialize, Serialize},
     serde_json::Value,
     std::{
         sync::{Arc, Mutex},
@@ -102,6 +106,11 @@ impl ContractStorage {
         let key = [name.as_bytes(), b"author"].concat();
         Ok(self.storage.get(&key).ok_or(Error::Get)?)
     }
+
+    fn get_cache(&self) -> HashMap<String, AST> {
+        let cache_bytes = self.storage.get_or_set(b"contract_cache", b"{}");
+        HashMap::new()
+    }
 }
 
 struct ContractRequest {
@@ -109,6 +118,7 @@ struct ContractRequest {
     name: String,
     method_name: String,
     req: Value,
+    id: i64,
 }
 
 struct ContractExecuter {
@@ -118,11 +128,15 @@ struct ContractExecuter {
 
 struct ContractResponse {
     id: i64,
-    failed: bool,
+    ok: bool,
 }
 
 impl ContractExecuter {
-    pub fn new(storage: Arc<dyn Storage>, exit: Arc<AtomicBool>, thread_number: usize) -> (Self, Receiver<ContractResponse>) {
+    pub fn new(
+        storage: Arc<dyn Storage>,
+        exit: Arc<AtomicBool>,
+        thread_number: usize,
+    ) -> (Self, Receiver<ContractResponse>) {
         assert!(thread_number > 0);
 
         let storage = ContractStorage::new(storage);
@@ -140,6 +154,7 @@ impl ContractExecuter {
                 thread::Builder::new()
                     .name(format!("contract-worker({})", i))
                     .spawn(move || {
+                        let mut cache = storage.get_cache();
                         loop {
                             if exit.load(Ordering::Relaxed) {
                                 if i == 0 {
@@ -147,11 +162,9 @@ impl ContractExecuter {
                                 }
                                 break;
                             }
-                            match Self::executer_thread(&queue, &mut storage) {
-                                Ok(_) => {}
-                                Err(Error::ContractIrrecoverable) => sender.send(ContractResponse { failed: true, id: 100 }).unwrap(),
-                                Err(Error::ContractRecoverable) => {}
-                                _ => {}
+                            match Self::executer_thread(&queue, &mut storage, &mut cache) {
+                                Ok(id) => sender.send(ContractResponse { id, ok: true }).unwrap(),
+                                Err(id) => sender.send(ContractResponse { id, ok: false }).unwrap(),
                             }
                         }
                     })
@@ -165,7 +178,8 @@ impl ContractExecuter {
     fn executer_thread(
         queue: &Arc<Mutex<Vec<ContractRequest>>>,
         storage: &mut ContractStorage,
-    ) -> Result<(), Error> {
+        cache: &mut HashMap<String, AST>,
+    ) -> Result<i64, i64> {
         let mut engine = Engine::new();
         engine.register_type::<ContractStorage>();
         engine.register_fn("get", ContractStorage::get_segment);
@@ -174,8 +188,8 @@ impl ContractExecuter {
 
         let scope = &mut Scope::new();
 
-        let mut cache = HashMap::new(); // TODO: init cache from db
-        if let Some(job) = queue.lock().unwrap().pop() { // do this from where we call this function.
+        if let Some(job) = queue.lock().unwrap().pop() {
+            // do this from where we call this function.
             match job.name.as_str() {
                 "native"
                     if job.method_name == "add"
@@ -183,7 +197,7 @@ impl ContractExecuter {
                 {
                     let original_author = storage.get_author(&job.name).unwrap();
                     if job.author.to_vec() != original_author {
-                        return Err(Error::ContractIrrecoverable);
+                        return Err(job.id);
                     }
 
                     match engine.compile(job.req["code"].as_str().unwrap()) {
@@ -197,7 +211,7 @@ impl ContractExecuter {
                                 job.author,
                             );
                         }
-                        Err(_) => return Err(Error::ContractIrrecoverable),
+                        Err(_) => return Err(job.id),
                     }
                 }
                 _ => {
@@ -208,7 +222,7 @@ impl ContractExecuter {
 
                     let req_arg = match to_dynamic(job.req) {
                         Ok(args) => args,
-                        Err(_) => return Err(Error::ContractRecoverable),
+                        Err(_) => return Err(job.id),
                     };
 
                     if engine
@@ -223,14 +237,14 @@ impl ContractExecuter {
                         )
                         .is_err()
                     {
-                        return Err(Error::ContractIrrecoverable);
+                        return Err(job.id);
                     }
                     scope.clear();
                 }
             }
-            Ok(())
+            Ok(job.id)
         } else {
-            Err(Error::ContractIrrecoverable)
+            Err(0)
         }
     }
 }
