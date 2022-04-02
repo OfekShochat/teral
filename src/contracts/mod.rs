@@ -288,4 +288,10 @@ impl ContractExecuter {
         }
         out
     }
+
+    pub fn join(self) {
+        for h in self.handlers {
+            h.join().unwrap();
+        }
+    }
 }
