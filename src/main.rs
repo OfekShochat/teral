@@ -37,5 +37,6 @@ fn transfer(req) {
 "#, "schema": "from:str;to:str;amount:u64" }), 0)
     ]);
     exit.store(true, std::sync::atomic::Ordering::SeqCst);
+    executer.join();
     println!("{:?}", a);
 }
