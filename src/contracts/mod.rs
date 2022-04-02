@@ -126,6 +126,7 @@ impl ContractRequest {
     }
 }
 
+#[derive(Debug)]
 struct ContractResponse {
     id: usize,
     ok: bool,
@@ -205,13 +206,13 @@ impl ContractExecuter {
     ) -> Result<(), ()> {
         // do this from where we call this function.
         match job.name.as_str() {
-            "native"
-                if job.method_name == "add"
-                    && validate_schema("name:str;code:str;schema:str", &job.req).is_ok() =>
-            {
-                let original_author = storage.get_author(&job.name).unwrap();
-                if job.author.to_vec() != original_author {
-                    return Err(());
+            "native" if job.method_name == "add" => {
+                if let Ok(original_author) = storage.get_author(&job.name) {
+                    if job.author.to_vec() != original_author
+                        || validate_schema("name:str;code:str;schema:str", &job.req).is_err()
+                    {
+                        return Err(());
+                    }
                 }
 
                 match engine.compile(job.req["code"].as_str().unwrap()) {
@@ -280,6 +281,7 @@ impl ContractExecuter {
         // TODO: time limit here?
         for _ in 0..requests.len() {
             let recipt = self.responder.recv().unwrap();
+            println!("{:?}", recipt);
             if recipt.ok {
                 out.push(requests[recipt.id].clone()); // so many clones...
             }
