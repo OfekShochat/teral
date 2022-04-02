@@ -57,14 +57,14 @@ impl ContractStorage {
         self.curr_contract = name.to_string();
     }
 
-    fn set_segment(&self, key: &str, value: Map) {
+    fn set_segment(&mut self, key: &str, value: Map) {
         self.storage.set(
             &[self.curr_contract.as_bytes(), key.as_bytes()].concat(),
             format!("{:?}", value).as_bytes(),
         );
     }
 
-    fn get_segment(&self, key: &str) -> Dynamic {
+    fn get_segment(&mut self, key: &str) -> Dynamic {
         let g = self
             .storage
             .get(&[self.curr_contract.as_bytes(), key.as_bytes()].concat());

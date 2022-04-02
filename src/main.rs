@@ -23,9 +23,10 @@ fn main() {
         serde_json::json!({ "name": "ginger", "code": r#"
 fn transfer(req) {
     let from = storage.get(req["from"]);
-    if from == 0 || from["balance"] < req["amount"] { return; }
+    if from == 0 || from["balance"] < req["amount"] { throw; }
     from["balance"] -= req["amount"];
     storage.set(req["from"], from);
+
     let to = storage.get(req["to"]);
     if to == 0 {
         storage.set(req["to"], #{ "balance": req["amount"] })
@@ -34,7 +35,14 @@ fn transfer(req) {
         storage.set(req["to"], to);
     }
 }
-"#, "schema": "from:str;to:str;amount:u64" }), 0)
+"#, "schema": "from:str;to:str;amount:u64" }), 0),
+        contracts::ContractRequest::new(
+            [0; 32],
+            String::from("ginger"),
+            String::from("transfer"),
+            serde_json::json!({"from": "hello", "to": "ginger", "amount": 100_u64}),
+            0,
+        ),
     ]);
     exit.store(true, std::sync::atomic::Ordering::SeqCst);
     executer.join();
