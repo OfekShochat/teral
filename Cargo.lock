@@ -239,9 +239,9 @@ dependencies = [
 
 [[package]]
 name = "ed25519-consensus"
-version = "1.2.0"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "542217a53411d471743362251a5a1770a667cb0cc0384c9be2c0952bd70a7275"
+checksum = "e1dd91246c940272326f665724138660a183577ffb77b384a5e10d67d2d5075a"
 dependencies = [
  "curve25519-dalek-ng",
  "hex",
