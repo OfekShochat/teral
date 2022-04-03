@@ -144,7 +144,8 @@ impl ContractExecuter {
 
         let storage = ContractStorage::new(storage);
 
-        let queue = Arc::new(Mutex::new(Vec::<ContractRequest>::with_capacity( // rust for some reason can't infere the type of this vec when cloning @181.
+        let queue = Arc::new(Mutex::new(Vec::<ContractRequest>::with_capacity(
+            // rust for some reason can't infere the type of this vec when cloning @181.
             CONTRACT_QUEUE_SIZE,
         )));
 

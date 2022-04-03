@@ -17,9 +17,11 @@ fn main() {
 
     let executer = contracts::ContractExecuter::new(storage, exit.clone(), 3);
     let a = executer.execute_multiple(&[
-        contracts::ContractRequest::new([0; 32],
-        String::from("native"), String::from("add"),
-        serde_json::json!({ "name": "ginger", "code": r#"
+        contracts::ContractRequest::new(
+            [0; 32],
+            String::from("native"),
+            String::from("add"),
+            serde_json::json!({ "name": "ginger", "code": r#"
 fn transfer(req) {
     let from = storage.get(req["from"]);
     if from == 0 || from["balance"] < req["amount"] { throw; }
@@ -34,7 +36,9 @@ fn transfer(req) {
         storage.set(req["to"], to);
     }
 }
-"#, "schema": "from:str;to:str;amount:u64" }), 0),
+"#, "schema": "from:str;to:str;amount:u64" }),
+            0,
+        ),
         contracts::ContractRequest::new(
             [0; 32],
             String::from("ginger"),
