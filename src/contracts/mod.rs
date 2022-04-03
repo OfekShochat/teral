@@ -144,9 +144,9 @@ impl ContractExecuter {
 
         let storage = ContractStorage::new(storage);
 
-        let queue = Arc::new(Mutex::new(Vec::<ContractRequest>::with_capacity(
+        let queue = Arc::new(Mutex::new(Vec::<ContractRequest>::with_capacity( // rust for some reason can't infere the type of this vec when cloning @181.
             CONTRACT_QUEUE_SIZE,
-        ))); // if we resolve @177 we dont need this generic
+        )));
 
         let (sender, receiver) = channel();
 
@@ -204,7 +204,6 @@ impl ContractExecuter {
         engine: &Engine,
         job: ContractRequest,
     ) -> Result<(), ()> {
-        // do this from where we call this function.
         match job.name.as_str() {
             "native" if job.method_name == "add" => {
                 if let Ok(original_author) = storage.get_author(&job.name) {
