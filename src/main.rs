@@ -11,7 +11,6 @@ mod storage;
 mod validator;
 
 fn main() {
-    println!("Hello, world!");
     let config = config::config_from_file("teral.toml");
     let storage: Arc<dyn Storage> = storage::RocksdbStorage::load("db/");
     let exit = Arc::new(AtomicBool::new(false));
