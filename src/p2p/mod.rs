@@ -3,7 +3,7 @@ use {
     bincode::Options,
     chrono::Utc,
     ed25519_consensus::{Signature, SigningKey, VerificationKey, VerificationKeyBytes},
-    log::{debug, error},
+    tracing::{debug, error},
     rand::{prelude::SliceRandom, thread_rng},
     rayon::{
         iter::{IntoParallelIterator, ParallelIterator},
@@ -37,14 +37,6 @@ enum P2PError {
     CannotDiscover,
     Tcp,
 }
-
-// impl fmt::Display for P2PError {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         write!(f, "{:?}", self)
-//     }
-// }
-
-use std::io::Bytes;
 
 impl<T> From<SendError<T>> for P2PError {
     fn from(_: SendError<T>) -> Self {

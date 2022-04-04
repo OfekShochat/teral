@@ -191,6 +191,7 @@ impl ContractExecuter {
             })
             .collect();
 
+        tracing::debug!("contracts executer running.");
         Self {
             handlers,
             queue,

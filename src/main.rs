@@ -11,11 +11,16 @@ mod storage;
 mod validator;
 
 fn main() {
+    tracing_subscriber::fmt()
+        .with_timer(tracing_subscriber::fmt::time::uptime())
+        .with_max_level(tracing::Level::DEBUG)
+        .compact()
+        .init();
     let config = config::config_from_file("teral.toml");
     let storage: Arc<dyn Storage> = storage::RocksdbStorage::load("db/");
     let exit = Arc::new(AtomicBool::new(false));
 
-    let executer = contracts::ContractExecuter::new(storage, exit.clone(), 3);
+    let executer = contracts::ContractExecuter::new(storage, exit.clone(), 8);
     let a = executer.execute_multiple(&[
         contracts::ContractRequest::new(
             [0; 32],
