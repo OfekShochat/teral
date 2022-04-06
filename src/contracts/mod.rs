@@ -32,7 +32,7 @@ fn validate_schema(schema: &str, req: &Value) -> Result<(), ContractsError> {
     // schema example: "from:str;to:str;amount:i64"
     let values = schema.split(';');
     for v in values {
-        let (name, typ) = v.split_once(';').ok_or(ContractsError::Schema)?;
+        let (name, typ) = v.split_once(':').ok_or(ContractsError::Schema)?;
         let value = req.get(name).ok_or(ContractsError::Schema)?;
 
         let is_ok = match typ {
