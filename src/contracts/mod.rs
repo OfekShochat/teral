@@ -242,6 +242,14 @@ impl ContractExecuter {
                 }
             }
             _ => {
+                if let Ok(schema) = storage.get_schema(&job.name) {
+                    if validate_schema(&schema, &job.req).is_err() {
+                        return Err(());
+                    }
+                } else {
+                    return Err(());
+                }
+
                 storage.set_curr_contract(&job.method_name);
                 scope.push_constant("storage", storage.clone());
 
