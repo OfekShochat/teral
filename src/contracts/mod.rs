@@ -309,6 +309,7 @@ impl ContractExecuter {
             if let Ok(recipt) = self.responder.recv_timeout(SYNC_RESPONDER_TIMEOUT) {
                 println!("{:?}", recipt);
                 received_recipts += 1;
+                enqueued.remove(&requests[recipt.id].name);
                 if recipt.ok {
                     out.push(requests[recipt.id].clone()); // so many clones...
                 }
@@ -342,7 +343,7 @@ mod tests {
 
         let config = Default::default();
         let storage: Arc<dyn Storage> = RocksdbStorage::load(&config);
-        let executer = super::ContractExecuter::new(storage.clone(), exit.clone(), 8);
+        let executer = super::ContractExecuter::new(storage.clone(), exit.clone(), 1);
         let recipts = executer.execute_multiple(&[
             super::ContractRequest::new(
                 [0; 32],
