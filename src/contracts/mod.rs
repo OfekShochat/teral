@@ -177,6 +177,7 @@ impl ContractExecuter {
                         let mut cache = HashMap::new();
 
                         let mut engine = Engine::new();
+                        engine.set_max_expr_depths(32, 32);
                         engine.register_type::<ContractStorage>();
                         engine.register_fn("get", ContractStorage::get_segment);
                         engine.register_fn("set", ContractStorage::set_segment);
@@ -204,7 +205,6 @@ impl ContractExecuter {
                     .unwrap()
             })
             .collect();
-
         tracing::debug!("contracts executer running.");
         Self {
             handlers,
