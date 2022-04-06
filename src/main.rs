@@ -5,7 +5,6 @@ use crate::config::TeralConfig;
 mod chain;
 mod config;
 mod contracts;
-pub mod errors;
 mod p2p;
 mod storage;
 mod validator;
