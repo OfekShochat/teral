@@ -43,6 +43,8 @@ enum P2PError {
     CannotDiscover,
     #[error("Tcp error")]
     Tcp,
+    #[error("IO error")]
+    IOError(#[from] std::io::Error),
 }
 
 impl<T> From<SendError<T>> for P2PError {
@@ -110,7 +112,7 @@ fn discover(
     listener: TcpListener,
     cluster_info: Arc<ClusterInfo>,
     target: usize,
-) -> anyhow::Result<HashSet<SocketAddr>> {
+) -> Result<HashSet<SocketAddr>, P2PError> {
     const TIMEOUT: Duration = Duration::from_secs(2);
     let mut discovered = HashSet::new();
 
@@ -355,7 +357,7 @@ fn udp_recv_loop(
     socket: &UdpSocket,
     channel: BufferedSender<Vec<u8>>,
     exit: Arc<AtomicBool>,
-) -> anyhow::Result<()> {
+) -> Result<(), P2PError> {
     socket.set_read_timeout(Some(RECV_TIMEOUT)).unwrap();
     loop {
         let mut msg_buf = Vec::new();
@@ -395,7 +397,7 @@ fn tcp_recv_loop(
     listener: TcpListener,
     channel: Sender<Vec<u8>>,
     exit: Arc<AtomicBool>,
-) -> anyhow::Result<()> {
+) -> Result<(), P2PError> {
     listener.set_nonblocking(true)?;
     loop {
         if exit.load(Ordering::Relaxed) {

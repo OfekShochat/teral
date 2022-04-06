@@ -1,5 +1,5 @@
 use {
-    crate::{errors::Error, storage::Storage},
+    crate::storage::Storage,
     rhai::{serde::to_dynamic, Dynamic, Engine, Map, Scope, AST},
     serde_json::Value,
     std::{
@@ -13,16 +13,27 @@ use {
         sync::{Arc, Mutex},
         thread::{self, JoinHandle},
     },
+    thiserror::Error,
 };
 
 const CONTRACT_QUEUE_SIZE: usize = 1024;
 
-fn validate_schema(schema: &str, req: &Value) -> anyhow::Result<()> {
+#[derive(Debug, Error)]
+pub enum ContractsError {
+    #[error("Schema is invalid")]
+    Schema,
+    #[error("a get operation failed")]
+    Get,
+    #[error("Could not convert from utf8")]
+    FromUtf8Error(#[from] std::string::FromUtf8Error),
+}
+
+fn validate_schema(schema: &str, req: &Value) -> Result<(), ContractsError> {
     // schema example: "from:str;to:str;amount:i64"
     let values = schema.split(';');
     for v in values {
-        let (name, typ) = v.split_once(';').ok_or(Error::Schema)?;
-        let value = req.get(name).ok_or(Error::Schema)?;
+        let (name, typ) = v.split_once(';').ok_or(ContractsError::Schema)?;
+        let value = req.get(name).ok_or(ContractsError::Schema)?;
 
         let is_ok = match typ {
             "i64" => value.is_i64(),
@@ -31,7 +42,7 @@ fn validate_schema(schema: &str, req: &Value) -> anyhow::Result<()> {
             _ => false,
         };
         if !is_ok {
-            return Err(Error::Schema.into());
+            return Err(ContractsError::Schema);
         }
     }
     Ok(())
@@ -85,23 +96,23 @@ impl ContractStorage {
         self.storage.set(&author_key, &author);
     }
 
-    fn get_code(&self, name: &str) -> anyhow::Result<String> {
+    fn get_code(&self, name: &str) -> Result<String, ContractsError> {
         let key = [name.as_bytes(), b"entrypoint"].concat();
         Ok(String::from_utf8(
-            self.storage.get(&key).ok_or(Error::Get)?,
+            self.storage.get(&key).ok_or(ContractsError::Get)?,
         )?)
     }
 
-    fn get_schema(&self, name: &str) -> anyhow::Result<String> {
+    fn get_schema(&self, name: &str) -> Result<String, ContractsError> {
         let key = [name.as_bytes(), b"schema"].concat();
         Ok(String::from_utf8(
-            self.storage.get(&key).ok_or(Error::Get)?,
+            self.storage.get(&key).ok_or(ContractsError::Get)?,
         )?)
     }
 
-    fn get_author(&self, name: &str) -> anyhow::Result<Vec<u8>> {
+    fn get_author(&self, name: &str) -> Result<Vec<u8>, ContractsError> {
         let key = [name.as_bytes(), b"author"].concat();
-        Ok(self.storage.get(&key).ok_or(Error::Get)?)
+        Ok(self.storage.get(&key).ok_or(ContractsError::Get)?)
     }
 }
 
