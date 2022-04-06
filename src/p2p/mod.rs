@@ -22,31 +22,32 @@ use {
         thread::{self, JoinHandle},
         time::Duration,
     },
+    thiserror::Error,
 };
 
 const GOSSIP_BUFFER_SIZE: usize = 2_usize.pow(16);
 const RECEIVER_BUFSIZE: usize = 1024;
 const RECV_TIMEOUT: Duration = Duration::from_secs(1);
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 enum P2PError {
-    ReceiverTimeout,
+    #[error("The receiver timed out")]
+    ReceiverTimeout(#[from] RecvTimeoutError),
+    #[error("The receiver disconnected")]
     ReceiverDisconnect,
+    #[error("The sender could not send")]
     Sender,
+    #[error("The serializer could not serialize {0}")]
     Serialize(bincode::Error),
+    #[error("We could not discover nodes")]
     CannotDiscover,
+    #[error("Tcp error")]
     Tcp,
 }
 
 impl<T> From<SendError<T>> for P2PError {
     fn from(_: SendError<T>) -> Self {
         Self::Sender
-    }
-}
-
-impl From<RecvTimeoutError> for P2PError {
-    fn from(_: RecvTimeoutError) -> Self {
-        Self::ReceiverTimeout
     }
 }
 
@@ -295,7 +296,7 @@ impl GossipService {
             .spawn(move || {
                 while !exit.load(Ordering::Relaxed) {
                     match Self::signature_verifier_thread(&thread_pool, &sender, &receiver) {
-                        Err(P2PError::ReceiverTimeout) => debug!("timeout somehow"),
+                        Err(P2PError::ReceiverTimeout(_)) => debug!("timeout somehow"),
                         Err(P2PError::Sender) => break,
                         Err(P2PError::ReceiverDisconnect) => break,
                         Err(err) => error!("socket-consume: {:?}", err),
