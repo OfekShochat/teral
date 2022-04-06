@@ -1,12 +1,16 @@
-use crate::config::{config_from_file, TeralConfig};
+use std::sync::Arc;
+
+use crate::{config::TeralConfig, chain::Chain};
 
 pub struct Validator {
-    config: TeralConfig,
+    // schedule: LeaderScheduler,
+    chain: Arc<Chain>, // arc to share between here and the rpc service.
 }
 
 impl Validator {
-    pub fn new(config_path: &str) -> Self {
-        let config = config_from_file(config_path);
-        Self { config }
+    pub fn new(config: TeralConfig) -> Self {
+        let storage = config.load_storage();
+        let chain = Arc::new(Chain::new(storage.unwrap()));
+        Self { chain }
     }
 }

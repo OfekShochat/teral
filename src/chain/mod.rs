@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
+use chrono::Utc;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use sha3::{Digest, Sha3_256};
 
-use crate::storage::Storage;
+use crate::{storage::Storage, contracts::ContractRequest};
 
 fn hash_recipts(recipts: &[ContractRecipt], time: i64, output: &mut [u8]) {
     let mut hasher = Sha3_256::new();
@@ -24,7 +25,7 @@ fn hash_recipts(recipts: &[ContractRecipt], time: i64, output: &mut [u8]) {
 }
 
 #[derive(Serialize, Deserialize)]
-struct ContractRecipt {
+pub struct ContractRecipt {
     contract_name: String, // NOTE: this will work when the contract is updated because the chain is evaluated from the start.
     contract_method: String,
     req: Value,
@@ -63,6 +64,53 @@ impl BlockStorage {
     }
 }
 
+struct BlockBuilder {
+    transactions: Vec<ContractRecipt>,
+}
+
+impl BlockBuilder {
+    fn new() -> Self {
+        Self { transactions: vec![] }
+    }
+
+    fn tx(&mut self, tx: ContractRecipt) {
+        self.transactions.push(tx);
+    }
+
+    fn build(self, previous_digest: [u8; 32]) -> Block {
+        let time = Utc::now().timestamp_millis();
+        let buf = &mut [0; 32];
+        hash_recipts(&self.transactions, time, buf);
+        Block { digest: *buf, previous_digest, recipts: self.transactions, time }
+    }
+}
+
 pub struct Chain {
     storage: BlockStorage,
+    finalized_block: Option<Block>,
+    curr_block: BlockBuilder,
+}
+
+impl Chain {
+    pub fn new(storage: Arc<dyn Storage>) -> Self {
+        let storage = BlockStorage::new(storage);
+        let finalized_block = storage.latest_block();
+        Self {
+            storage,
+            finalized_block,
+            curr_block: BlockBuilder::new(),
+        }
+    }
+
+    pub fn add_transaction(&mut self, tx: ContractRecipt) {
+        self.curr_block.tx(tx);
+    }
+
+    pub fn finalize(self) {
+        self.storage.insert_block(self.curr_block.build(self.storage.latest_block().unwrap().digest));
+    }
+
+    pub fn insert_block(&self, block: Block) {
+        self.storage.insert_block(block);
+    }
 }

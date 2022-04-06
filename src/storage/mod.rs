@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 pub trait Storage {
-    fn load(path: &str) -> Arc<Self>
+    fn load(config: &StorageConfig) -> Arc<Self>
     where
         Self: Sized;
 
@@ -15,6 +15,8 @@ pub trait Storage {
 #[cfg(feature = "rocksdb-backend")]
 use rocksdb::{Options, DB};
 
+use crate::config::StorageConfig;
+
 #[cfg(feature = "rocksdb-backend")]
 pub struct RocksdbStorage {
     db: DB,
@@ -22,15 +24,16 @@ pub struct RocksdbStorage {
 
 #[cfg(feature = "rocksdb-backend")]
 impl Storage for RocksdbStorage {
-    fn load(path: &str) -> Arc<Self>
+    fn load(config: &StorageConfig) -> Arc<Self>
     where
         Self: Sized,
     {
         let mut options = Options::default();
         options.create_if_missing(true);
+        options.set_keep_log_file_num(config.log_history);
 
         Arc::new(Self {
-            db: DB::open(&options, path).unwrap(),
+            db: DB::open(&options, &config.path).unwrap(),
         })
     }
 

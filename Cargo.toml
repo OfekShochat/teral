@@ -25,6 +25,10 @@ rhai = { version = "1.6", features = [ "serde", "no_float", "no_closure", "no_mo
 
 rocksdb = { version = "0.18", optional = true }
 
+[[bin]]
+name = "validator"
+path = "src/main.rs"
+
 [features]
 default = [ "rocksdb-backend" ]
 rocksdb-backend = [ "rocksdb" ]

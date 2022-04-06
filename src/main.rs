@@ -1,6 +1,6 @@
 use std::sync::{atomic::AtomicBool, Arc};
 
-use crate::storage::Storage;
+use crate::config::TeralConfig;
 
 mod chain;
 mod config;
@@ -16,10 +16,11 @@ fn main() {
         .with_max_level(tracing::Level::DEBUG)
         .compact()
         .init();
-    let config = config::config_from_file("teral.toml");
-    let storage: Arc<dyn Storage> = storage::RocksdbStorage::load("db/");
+    let config = TeralConfig::read("teral.toml");
+
     let exit = Arc::new(AtomicBool::new(false));
 
+    let storage = config.load_storage().unwrap();
     let executer = contracts::ContractExecuter::new(storage, exit.clone(), 8);
     let a = executer.execute_multiple(&[
         contracts::ContractRequest::new(
@@ -49,7 +50,7 @@ fn transfer(req) {
             String::from("ginger"),
             String::from("transfer"),
             serde_json::json!({"from": "hello", "to": "ginger", "amount": 100_u64}),
-            0,
+            1,
         ),
     ]);
     exit.store(true, std::sync::atomic::Ordering::SeqCst);

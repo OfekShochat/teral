@@ -1,6 +1,7 @@
 [storage]
 path = "teral/"
 backend = "rocksdb"
+log_history = 5
 
 [identity]
 path = "keypair.toml"

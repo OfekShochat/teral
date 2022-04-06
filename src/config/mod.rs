@@ -1,16 +1,28 @@
 use serde_derive::Deserialize;
-use std::{fs::read, net::SocketAddr};
+use std::{fs::read, net::SocketAddr, sync::Arc};
 
-pub fn config_from_file(path: &str) -> TeralConfig {
-    let bytes = read(path).expect("Could not read config file");
-    toml::from_slice(&bytes).expect("Config error")
-}
+use crate::storage::{RocksdbStorage, Storage};
 
 #[derive(Deserialize)]
 pub struct TeralConfig {
     pub storage: StorageConfig,
     pub identity: IdentityConfig,
     pub network: NetworkConfig,
+}
+
+impl TeralConfig {
+    pub fn read(path: &str) -> Self {
+        let bytes = read(path).expect("Could not read config file");
+        toml::from_slice(&bytes).expect("Config error")
+    }
+
+    pub fn load_storage(&self) -> Option<Arc<dyn Storage>> {
+        match self.storage.backend {
+            #[cfg(feature = "rocksdb-backend")]
+            DbBackend::Rocksdb => Some(RocksdbStorage::load(&self.storage)),
+            // _ => None,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -23,6 +35,7 @@ pub struct NetworkConfig {
 pub struct StorageConfig {
     pub backend: DbBackend,
     pub path: String,
+    pub log_history: usize,
 }
 
 #[derive(Deserialize)]
