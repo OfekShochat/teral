@@ -38,6 +38,16 @@ pub struct StorageConfig {
     pub log_history: usize,
 }
 
+impl Default for StorageConfig {
+    fn default() -> Self {
+        Self {
+            backend: DbBackend::Rocksdb,
+            path: String::from("db/"),
+            log_history: 1,
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct IdentityConfig {
     pub path: String,

@@ -1,3 +1,5 @@
+use std::{collections::HashSet, time::Duration};
+
 use {
     crate::storage::Storage,
     rhai::{serde::to_dynamic, Dynamic, Engine, Map, Scope, AST},
@@ -17,6 +19,7 @@ use {
 };
 
 const CONTRACT_QUEUE_SIZE: usize = 1024;
+const SYNC_RESPONDER_TIMEOUT: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Error)]
 pub enum ContractsError {
@@ -292,26 +295,90 @@ impl ContractExecuter {
 
     pub fn execute_multiple(&self, requests: &[ContractRequest]) -> Vec<ContractRequest> {
         let mut out = Vec::with_capacity(requests.len());
-
-        {
-            let mut locked_queue = self.queue.lock().unwrap();
-            requests.iter().for_each(|r| locked_queue.push(r.clone()));
-        }
+        let mut enqueued = HashSet::new();
 
         // TODO: time limit here?
-        for _ in 0..requests.len() {
-            let recipt = self.responder.recv().unwrap();
-            println!("{:?}", recipt);
-            if recipt.ok {
-                out.push(requests[recipt.id].clone()); // so many clones...
+        let mut i = 0;
+        let mut received_recipts = 0;
+        loop {
+            if !enqueued.contains(&requests[i].name) {
+                enqueued.insert(&requests[i].name);
+                self.queue.lock().unwrap().push(requests[i].clone());
+                i += 1;
+            }
+            if let Ok(recipt) = self.responder.recv_timeout(SYNC_RESPONDER_TIMEOUT) {
+                println!("{:?}", recipt);
+                received_recipts += 1;
+                if recipt.ok {
+                    out.push(requests[recipt.id].clone()); // so many clones...
+                }
+                if received_recipts == requests.len() {
+                    return out;
+                }
             }
         }
-        out
     }
+
+    // TODO: have a method `schedule` which would schedule the request if it can, and will return
+    // the id to identify them afterwards in the `summary` function which will return the same
+    // thing as this function.
 
     pub fn join(self) {
         for h in self.handlers {
             h.join().unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{atomic::AtomicBool, Arc};
+
+    use crate::storage::{RocksdbStorage, Storage};
+
+    #[test]
+    fn execute_sync() {
+        let exit = Arc::new(AtomicBool::new(false));
+
+        let config = Default::default();
+        let storage: Arc<dyn Storage> = RocksdbStorage::load(&config);
+        let executer = super::ContractExecuter::new(storage.clone(), exit.clone(), 8);
+        let recipts = executer.execute_multiple(&[
+            super::ContractRequest::new(
+                [0; 32],
+                String::from("native"),
+                String::from("add"),
+                serde_json::json!({ "name": "test-test", "code": r#"
+fn transfer(req) {
+    storage.set(req["from"], #{ "balance": 1000 });
+    let from = storage.get(req["from"]);
+    if from == 0 || from["balance"] < req["amount"] { throw; }
+    from["balance"] -= req["amount"];
+    storage.set(req["from"], from);
+
+    let to = storage.get(req["to"]);
+    if to == 0 {
+        storage.set(req["to"], #{ "balance": req["amount"] })
+    } else {
+        to["balance"] += req["amount"];
+        storage.set(req["to"], to);
+    }
+}
+"#, "schema": "from:str;to:str;amount:u64" }),
+                0,
+            ),
+            super::ContractRequest::new(
+                [0; 32],
+                String::from("test-test"),
+                String::from("transfer"),
+                serde_json::json!({"from": "hello", "to": "ginger", "amount": 100_u64}),
+                1,
+            ),
+        ]);
+        exit.store(true, std::sync::atomic::Ordering::SeqCst);
+        executer.join();
+        storage.delete_prefix("test-test".as_bytes());
+
+        assert!(recipts.len() == 2);
     }
 }

@@ -7,6 +7,10 @@ pub trait Storage {
 
     fn get(&self, key: &[u8]) -> Option<Vec<u8>>;
 
+    fn delete(&self, key: &[u8]);
+
+    fn delete_prefix(&self, prefix: &[u8]);
+
     fn set(&self, key: &[u8], value: &[u8]);
 
     fn get_or_set(&self, key: &[u8], alternative_value: &[u8]) -> Vec<u8>;
@@ -39,6 +43,16 @@ impl Storage for RocksdbStorage {
 
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
         self.db.get(key).unwrap()
+    }
+
+    fn delete(&self, key: &[u8]) {
+        self.db.delete(key).unwrap();
+    }
+
+    fn delete_prefix(&self, prefix: &[u8]) {
+        for key in self.db.prefix_iterator(prefix) {
+            self.delete(&key.0);
+        }
     }
 
     fn set(&self, key: &[u8], value: &[u8]) {
