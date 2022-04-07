@@ -112,7 +112,7 @@ impl ContractStorage {
 
     fn get_author(&self, name: &str) -> Result<Vec<u8>, ContractsError> {
         let key = [name.as_bytes(), b"author"].concat();
-        Ok(self.storage.get(&key).ok_or(ContractsError::Get)?)
+        self.storage.get(&key).ok_or(ContractsError::Get)
     }
 }
 
@@ -156,7 +156,7 @@ impl ContractQueue {
         for (name, lock) in locked_queue.iter() {
             let to_return = if let Ok(mut v) = lock.try_lock() {
                 let to_return = v.pop();
-                Some((to_return, v.len() == 0))
+                Some((to_return, v.is_empty()))
             } else {
                 None
             };
