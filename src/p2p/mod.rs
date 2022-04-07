@@ -3,7 +3,6 @@ use {
     bincode::Options,
     chrono::Utc,
     ed25519_consensus::{Signature, SigningKey, VerificationKey, VerificationKeyBytes},
-    tracing::{debug, error},
     rand::{prelude::SliceRandom, thread_rng},
     rayon::{
         iter::{IntoParallelIterator, ParallelIterator},
@@ -23,6 +22,7 @@ use {
         time::Duration,
     },
     thiserror::Error,
+    tracing::{debug, error},
 };
 
 const GOSSIP_BUFFER_SIZE: usize = 2_usize.pow(16);

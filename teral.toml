@@ -9,3 +9,6 @@ path = "keypair.toml"
 [network]
 addr = "poop"
 known_nodes = [ "127.0.0.1:8080" ]
+
+[contracts_exec]
+threads = 4

@@ -9,8 +9,8 @@ use {
             mpsc::{channel, Receiver},
             Arc, Mutex,
         },
-        time::Duration,
         thread::{self, JoinHandle},
+        time::Duration,
     },
     thiserror::Error,
 };
@@ -119,9 +119,9 @@ impl ContractStorage {
 #[derive(Debug, Clone)]
 pub struct ContractRequest {
     author: [u8; 32], // provided already verified
-    name: String,
-    method_name: String,
-    req: Value,
+    pub name: String,
+    pub method_name: String,
+    pub req: Value,
     id: usize,
 }
 
@@ -285,6 +285,8 @@ impl ContractExecuter {
                     }
                     Err(_) => return Err(()),
                 }
+                // TODO: maybe call here init() so the code can init its storage (for example give
+                // the initial supply).
             }
             _ => {
                 if let Ok(schema) = storage.get_schema(&job.name) {
@@ -372,7 +374,6 @@ impl ContractExecuter {
     pub fn summary(&mut self) -> &[ContractRequest] {
         for _ in 0..self.curr_id {
             if let Ok(response) = self.responder.recv_timeout(SYNC_RESPONDER_TIMEOUT) {
-                println!("poop");
                 if !response.ok {
                     self.valid.remove(response.id);
                 }

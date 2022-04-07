@@ -8,6 +8,7 @@ pub struct TeralConfig {
     pub storage: StorageConfig,
     pub identity: IdentityConfig,
     pub network: NetworkConfig,
+    pub contracts_exec: ContractExecConfig,
 }
 
 impl TeralConfig {
@@ -51,6 +52,11 @@ impl Default for StorageConfig {
 #[derive(Deserialize)]
 pub struct IdentityConfig {
     pub path: String,
+}
+
+#[derive(Deserialize)]
+pub struct ContractExecConfig {
+    pub threads: usize,
 }
 
 #[derive(Deserialize)]
