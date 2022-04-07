@@ -1,18 +1,15 @@
-use std::{collections::HashSet, time::Duration};
-
 use {
     crate::storage::Storage,
     rhai::{serde::to_dynamic, Dynamic, Engine, Map, Scope, AST},
     serde_json::Value,
     std::{
-        collections::HashMap,
+        collections::{HashMap, HashSet},
         sync::{
             atomic::{AtomicBool, Ordering},
             mpsc::{channel, Receiver},
+            Arc, Mutex,
         },
-    },
-    std::{
-        sync::{Arc, Mutex},
+        time::Duration,
         thread::{self, JoinHandle},
     },
     thiserror::Error,
@@ -146,10 +143,56 @@ struct ContractResponse {
     ok: bool,
 }
 
+struct ContractQueue(Mutex<HashMap<String, Mutex<Vec<ContractRequest>>>>);
+
+impl ContractQueue {
+    fn new() -> Self {
+        Self(Mutex::new(HashMap::new()))
+    }
+
+    fn get_and_maybe_delete(&self) -> Option<ContractRequest> {
+        let mut locked_queue = self.0.lock().unwrap();
+        // NOTE: this may be simplified with drain_filter: https://doc.rust-lang.org/beta/unstable-book/library-features/drain-filter.html
+        for (name, lock) in locked_queue.iter() {
+            let to_return = if let Ok(mut v) = lock.try_lock() {
+                let to_return = v.pop();
+                Some((to_return, v.len() == 0))
+            } else {
+                None
+            };
+            if let Some((to_return, remove)) = to_return {
+                if remove {
+                    let name = name.clone();
+                    locked_queue.remove(&name);
+                }
+                return to_return;
+            }
+        }
+        None
+    }
+
+    fn add(&self, req: ContractRequest) {
+        let mut locked_queue = self.0.lock().unwrap();
+        if locked_queue.contains_key(&req.name) {
+            locked_queue
+                .get(&req.name)
+                .unwrap()
+                .lock()
+                .unwrap()
+                .push(req);
+        } else {
+            locked_queue.insert(req.name.clone(), Mutex::new(vec![req]));
+        }
+    }
+}
+
 pub struct ContractExecuter {
     handlers: Vec<JoinHandle<()>>,
-    queue: Arc<Mutex<Vec<ContractRequest>>>,
+    queue: Arc<ContractQueue>,
     responder: Receiver<ContractResponse>,
+
+    curr_id: usize,
+    valid: Vec<ContractRequest>,
 }
 
 impl ContractExecuter {
@@ -158,13 +201,9 @@ impl ContractExecuter {
 
         let storage = ContractStorage::new(storage);
 
-        let queue = Arc::new(Mutex::new(Vec::<ContractRequest>::with_capacity(
-            // rust for some reason can't infere the type of this vec when cloning @181.
-            CONTRACT_QUEUE_SIZE,
-        )));
+        let queue = Arc::new(ContractQueue::new());
 
         let (sender, receiver) = channel();
-
         let handlers = (0..thread_number)
             .map(|i| {
                 let queue = queue.clone();
@@ -188,7 +227,8 @@ impl ContractExecuter {
                             if exit.load(Ordering::Relaxed) {
                                 break;
                             }
-                            if let Some(job) = queue.lock().unwrap().pop() {
+
+                            if let Some(job) = queue.get_and_maybe_delete() {
                                 let ok = Self::executer_thread(
                                     &mut storage,
                                     &mut cache,
@@ -205,11 +245,13 @@ impl ContractExecuter {
                     .unwrap()
             })
             .collect();
-        tracing::debug!("contracts executer running.");
+        tracing::debug!("contracts executer(s) running.");
         Self {
             handlers,
             queue,
             responder: receiver,
+            curr_id: 0,
+            valid: vec![],
         }
     }
 
@@ -303,7 +345,7 @@ impl ContractExecuter {
         loop {
             if !enqueued.contains(&requests[i].name) {
                 enqueued.insert(&requests[i].name);
-                self.queue.lock().unwrap().push(requests[i].clone());
+                self.queue.add(requests[i].clone());
                 i += 1;
             }
             if let Ok(recipt) = self.responder.recv_timeout(SYNC_RESPONDER_TIMEOUT) {
@@ -320,9 +362,24 @@ impl ContractExecuter {
         }
     }
 
-    // TODO: have a method `schedule` which would schedule the request if it can, and will return
-    // the id to identify them afterwards in the `summary` function which will return the same
-    // thing as this function.
+    pub fn schedule(&mut self, mut request: ContractRequest) {
+        request.id = self.curr_id;
+        self.curr_id += 1;
+        self.valid.push(request.clone());
+        self.queue.add(request);
+    }
+
+    pub fn summary(&mut self) -> &[ContractRequest] {
+        for _ in 0..self.curr_id {
+            if let Ok(response) = self.responder.recv_timeout(SYNC_RESPONDER_TIMEOUT) {
+                println!("poop");
+                if !response.ok {
+                    self.valid.remove(response.id);
+                }
+            }
+        }
+        &self.valid
+    }
 
     pub fn join(self) {
         for h in self.handlers {
@@ -336,8 +393,10 @@ mod tests {
     use std::sync::{atomic::AtomicBool, Arc};
 
     use crate::storage::{RocksdbStorage, Storage};
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn execute_sync() {
         let exit = Arc::new(AtomicBool::new(false));
 
@@ -349,7 +408,7 @@ mod tests {
                 [0; 32],
                 String::from("native"),
                 String::from("add"),
-                serde_json::json!({ "name": "test-test", "code": r#"
+                serde_json::json!({ "name": "test-sync", "code": r#"
 fn transfer(req) {
     storage.set(req["from"], #{ "balance": 1000 });
     let from = storage.get(req["from"]);
@@ -370,7 +429,7 @@ fn transfer(req) {
             ),
             super::ContractRequest::new(
                 [0; 32],
-                String::from("test-test"),
+                String::from("test-sync"),
                 String::from("transfer"),
                 serde_json::json!({"from": "hello", "to": "ginger", "amount": 100_u64}),
                 1,
@@ -381,5 +440,52 @@ fn transfer(req) {
         storage.delete_prefix("test-test".as_bytes());
 
         assert!(recipts.len() == 2);
+    }
+
+    #[test]
+    #[serial]
+    fn execute_async() {
+        let exit = Arc::new(AtomicBool::new(false));
+
+        let config = Default::default();
+        let storage: Arc<dyn Storage> = RocksdbStorage::load(&config);
+        let mut executer = super::ContractExecuter::new(storage.clone(), exit.clone(), 1);
+        executer.schedule(super::ContractRequest::new(
+            [0; 32],
+            String::from("native"),
+            String::from("add"),
+            serde_json::json!({ "name": "test-async", "code": r#"
+fn transfer(req) {
+    storage.set(req["from"], #{ "balance": 1000 });
+    let from = storage.get(req["from"]);
+    if from == 0 || from["balance"] < req["amount"] { throw; }
+    from["balance"] -= req["amount"];
+    storage.set(req["from"], from);
+
+    let to = storage.get(req["to"]);
+    if to == 0 {
+        storage.set(req["to"], #{ "balance": req["amount"] })
+    } else {
+        to["balance"] += req["amount"];
+        storage.set(req["to"], to);
+    }
+}
+"#, "schema": "from:str;to:str;amount:u64" }),
+            0,
+        ));
+        executer.schedule(super::ContractRequest::new(
+            [0; 32],
+            String::from("test-async"),
+            String::from("transfer"),
+            serde_json::json!({"from": "hello", "to": "ginger", "amount": 100_u64}),
+            1,
+        ));
+        exit.store(true, std::sync::atomic::Ordering::SeqCst);
+        storage.delete_prefix("test-test".as_bytes());
+
+        println!("{:?}", executer.summary());
+
+        // assert!(executer.summary().len() == 2);
+        executer.join();
     }
 }
