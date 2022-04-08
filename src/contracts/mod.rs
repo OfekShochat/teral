@@ -1,4 +1,5 @@
 use {
+    self::native::execute_native,
     crate::storage::Storage,
     rhai::{serde::to_dynamic, Dynamic, Engine, Map, Scope, AST},
     serde_json::Value,
@@ -15,8 +16,12 @@ use {
     thiserror::Error,
 };
 
+mod native;
+
 const CONTRACT_QUEUE_SIZE: usize = 1024;
 const SYNC_RESPONDER_TIMEOUT: Duration = Duration::from_millis(100);
+
+// TODO: maybe somehow verify contracts with votes of the biggest share holders and then they will be able to access the api for the native currency?
 
 #[derive(Debug, Error)]
 pub enum ContractsError {
@@ -26,6 +31,8 @@ pub enum ContractsError {
     Get,
     #[error("Could not convert from utf8")]
     FromUtf8Error(#[from] std::string::FromUtf8Error),
+    #[error("Could not find native contract {0}")]
+    NonExistingNative(String),
 }
 
 fn validate_schema(schema: &str, req: &Value) -> Result<(), ContractsError> {
@@ -49,7 +56,7 @@ fn validate_schema(schema: &str, req: &Value) -> Result<(), ContractsError> {
 }
 
 #[derive(Clone)]
-struct ContractStorage {
+pub(crate) struct ContractStorage {
     storage: Arc<dyn Storage>,
     curr_contract: String,
 }
@@ -68,14 +75,14 @@ impl ContractStorage {
         self.curr_contract = name.to_string();
     }
 
-    fn set_segment(&mut self, key: &str, value: Map) {
+    fn regular_set_segment(&mut self, key: &str, value: Map) {
         self.storage.set(
             &[self.curr_contract.as_bytes(), key.as_bytes()].concat(),
             format!("{:?}", value).as_bytes(),
         );
     }
 
-    fn get_segment(&mut self, key: &str) -> Dynamic {
+    fn regular_get_segment(&mut self, key: &str) -> Dynamic {
         let g = self
             .storage
             .get(&[self.curr_contract.as_bytes(), key.as_bytes()].concat());
@@ -86,6 +93,17 @@ impl ContractStorage {
         }
     }
 
+    fn native_get_segment(&self, key: &str) -> Option<Value> {
+        let g = self.storage.get(&[b"native", key.as_bytes()].concat())?;
+        serde_json::from_slice(&g).unwrap_or_default()
+    }
+
+    fn native_set_segment(&self, key: &str, value: Value) {
+        self.storage.set(
+            &[b"native", key.as_bytes()].concat(),
+            format!("{:?}", value).as_bytes(),
+        );
+    }
     fn add_contract(&self, name: &str, code: &str, schema: &str, author: [u8; 32]) {
         let entrypoint_key = [name.as_bytes(), b"entrypoint"].concat();
         let schema_key = [name.as_bytes(), b"schema"].concat();
@@ -218,8 +236,8 @@ impl ContractExecuter {
                         let mut engine = Engine::new();
                         engine.set_max_expr_depths(32, 32);
                         engine.register_type::<ContractStorage>();
-                        engine.register_fn("get", ContractStorage::get_segment);
-                        engine.register_fn("set", ContractStorage::set_segment);
+                        engine.register_fn("get", ContractStorage::regular_get_segment);
+                        engine.register_fn("set", ContractStorage::regular_set_segment);
                         engine.on_print(|_| {});
 
                         let scope = &mut Scope::new();
@@ -245,7 +263,7 @@ impl ContractExecuter {
                     .unwrap()
             })
             .collect();
-        tracing::debug!("contracts executer(s) running.");
+        tracing::info!("contracts executer(s) running.");
         Self {
             handlers,
             queue,
@@ -263,28 +281,8 @@ impl ContractExecuter {
         job: ContractRequest,
     ) -> Result<(), ()> {
         match job.name.as_str() {
-            "native" if job.method_name == "add" => {
-                if let Ok(original_author) = storage.get_author(&job.name) {
-                    if job.author.to_vec() != original_author
-                        || validate_schema("name:str;code:str;schema:str", &job.req).is_err()
-                    {
-                        return Err(());
-                    }
-                }
-
-                match engine.compile(job.req["code"].as_str().unwrap()) {
-                    Ok(ast) => {
-                        let name = job.req["name"].as_str().unwrap().to_string();
-                        cache.insert(name, ast);
-                        storage.add_contract(
-                            job.req["name"].as_str().unwrap(),
-                            job.req["code"].as_str().unwrap(),
-                            job.req["schema"].as_str().unwrap(),
-                            job.author,
-                        );
-                    }
-                    Err(_) => return Err(()),
-                }
+            "native" => {
+                execute_native(&job, cache, engine, storage)?;
                 // TODO: maybe call here init() so the code can init its storage (for example give
                 // the initial supply).
             }
