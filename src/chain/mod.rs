@@ -8,7 +8,7 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use sha3::{Digest, Sha3_256};
 
-use crate::{contracts::ContractRequest, storage::Storage};
+use crate::{contracts::{ContractRequest, native_init}, storage::Storage};
 
 fn hash_recipts(recipts: &[ContractRecipt], time: i64, output: &mut [u8]) {
     let mut hasher = Sha3_256::new();
@@ -126,7 +126,8 @@ impl BlockStorage {
                 },
                 true,
             );
-            // call init for native contracts.
+            native_init(self.storage.clone());
+            tracing::debug!("bootstrapped the blockchain.");
         }
     }
 }
