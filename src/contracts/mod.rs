@@ -18,10 +18,16 @@ use {
 
 mod native;
 
+pub fn native_init(storage: Arc<dyn Storage>) {
+    native::teral_init(ContractStorage::new(storage));
+}
+
 const CONTRACT_QUEUE_SIZE: usize = 1024;
 const SYNC_RESPONDER_TIMEOUT: Duration = Duration::from_millis(100);
 
 // TODO: maybe somehow verify contracts with votes of the biggest share holders and then they will be able to access the api for the native currency?
+
+use serde_json::to_string;
 
 #[derive(Debug, Error)]
 pub enum ContractsError {
@@ -101,7 +107,7 @@ impl ContractStorage {
     fn native_set_segment(&self, key: &str, value: Value) {
         self.storage.set(
             &[b"native", key.as_bytes()].concat(),
-            format!("{:?}", value).as_bytes(),
+            to_string(&value).unwrap_or_default().as_bytes(),
         );
     }
     fn add_contract(&self, name: &str, code: &str, schema: &str, author: [u8; 32]) {
@@ -281,11 +287,7 @@ impl ContractExecuter {
         job: ContractRequest,
     ) -> Result<(), ()> {
         match job.name.as_str() {
-            "native" => {
-                execute_native(&job, cache, engine, storage)?;
-                // TODO: maybe call here init() so the code can init its storage (for example give
-                // the initial supply).
-            }
+            "native" => execute_native(&job, cache, engine, storage)?,
             _ => {
                 if let Ok(schema) = storage.get_schema(&job.name) {
                     if validate_schema(&schema, &job.req).is_err() {

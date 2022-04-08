@@ -36,6 +36,8 @@ pub(crate) fn execute_native(
                 }
                 Err(_) => return Err(()),
             }
+            // TODO: maybe call here script.init() so the code can init its storage (for example give
+            // the initial supply).
             Ok(())
         }
         "transfer" => teral_transfer(storage, &job.req),
@@ -45,11 +47,19 @@ pub(crate) fn execute_native(
 
 pub(crate) fn teral_transfer(storage: &ContractStorage, req: &Value) -> Result<(), ()> {
     let from = storage.native_get_segment(req["from"].as_str().unwrap());
-    if from.is_none()
-        || req["amount"].as_u64().unwrap() > from.unwrap()["balance"].as_u64().unwrap()
-    {
+    let from = if let Some(from) = from {
+        from
+    } else {
+        return Err(());
+    };
+    if req["amount"].as_u64().unwrap() > from["balance"].as_u64().unwrap() {
         return Err(());
     }
+
+    storage.native_set_segment(
+        req["from"].as_str().unwrap(),
+        json!({ "balance": from["balance"].as_u64().unwrap() - req["amount"].as_u64().unwrap() }),
+    );
 
     let to = storage.native_get_segment(req["to"].as_str().unwrap());
     if let Some(to) = to {
@@ -64,6 +74,6 @@ pub(crate) fn teral_transfer(storage: &ContractStorage, req: &Value) -> Result<(
     Ok(())
 }
 
-pub(crate) fn teral_init(storage: &ContractStorage) {
-    storage.native_set_segment("ghostway", json!({ "balance": 10000_u64 }))
+pub(crate) fn teral_init(storage: ContractStorage) {
+    storage.native_set_segment("ghostway", json!({ "balance": 100_u64 }));
 }
