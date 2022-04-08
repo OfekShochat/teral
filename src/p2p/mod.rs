@@ -162,8 +162,7 @@ pub struct ClusterInfo {
 
 impl ClusterInfo {
     pub fn new(keypair: Arc<SigningKey>, storage: Arc<dyn Storage>) -> Self {
-        let contact_bytes = storage
-            .get_or_set(b"contact_list", b"{}");
+        let contact_bytes = storage.get_or_set(b"contact_list", b"{}");
         let contact_list = contact_bytes
             .chunks_exact(6)
             .map(Self::ipv4_from_bytes)

@@ -75,5 +75,5 @@ pub(crate) fn teral_transfer(storage: &ContractStorage, req: &Value) -> Result<(
 }
 
 pub(crate) fn teral_init(storage: ContractStorage) {
-    storage.native_set_segment("ghostway", json!({ "balance": 100_u64 }));
+    storage.native_set_segment("ghostway", json!({ "balance": 1000_u64 }));
 }

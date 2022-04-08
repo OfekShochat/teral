@@ -8,7 +8,10 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use sha3::{Digest, Sha3_256};
 
-use crate::{contracts::{ContractRequest, native_init}, storage::Storage};
+use crate::{
+    contracts::{native_init, ContractRequest},
+    storage::Storage,
+};
 
 fn hash_recipts(recipts: &[ContractRecipt], time: i64, output: &mut [u8]) {
     let mut hasher = Sha3_256::new();

@@ -1,21 +1,21 @@
 mod leader_schedule;
 pub use self::leader_schedule::*;
 
-use std::{
-    net::UdpSocket,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
+use {
+    crate::{
+        chain::{requests_to_recipts, Block, Chain},
+        config::TeralConfig,
+        contracts::{ContractExecuter, ContractRequest},
+        p2p::{ClusterInfo, GossipService},
     },
-};
-
-use ed25519_consensus::SigningKey;
-
-use crate::{
-    chain::{requests_to_recipts, Block, Chain},
-    config::TeralConfig,
-    contracts::{ContractExecuter, ContractRequest, native_init},
-    p2p::{ClusterInfo, GossipService},
+    ed25519_consensus::SigningKey,
+    std::{
+        net::UdpSocket,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
+    },
 };
 
 pub struct Validator {
@@ -35,8 +35,12 @@ impl Validator {
         let chain = Arc::new(Chain::new(storage.clone()));
         let contract_executer =
             ContractExecuter::new(storage.clone(), exit.clone(), config.contracts_exec.threads);
-        let udp_socket = UdpSocket::bind(&config.network.addr).unwrap_or_else(|_| panic!("Could not bind udp socket to {}", config.network.addr));
-        let cluster_info = Arc::new(ClusterInfo::new(Arc::new(SigningKey::new(&mut rand::thread_rng())), storage));
+        let udp_socket = UdpSocket::bind(&config.network.addr)
+            .unwrap_or_else(|_| panic!("Could not bind udp socket to {}", config.network.addr));
+        let cluster_info = Arc::new(ClusterInfo::new(
+            Arc::new(SigningKey::new(&mut rand::thread_rng())),
+            storage,
+        ));
         let (gossip, gossip_receiver) = GossipService::new(cluster_info, udp_socket, &exit);
         Self {
             exit,
