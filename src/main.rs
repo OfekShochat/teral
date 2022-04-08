@@ -45,7 +45,7 @@ fn transfer(req) {
         [0; 32],
         String::from("native"),
         String::from("transfer"),
-        serde_json::json!({ "from": "hello", "to": "ginger", "amount": 100_u64}),
+        serde_json::json!({ "from": "ghostway", "to": "ginger", "amount": 100_u64}),
         0,
     ));
 

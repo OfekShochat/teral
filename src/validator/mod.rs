@@ -14,7 +14,7 @@ use ed25519_consensus::SigningKey;
 use crate::{
     chain::{requests_to_recipts, Block, Chain},
     config::TeralConfig,
-    contracts::{ContractExecuter, ContractRequest},
+    contracts::{ContractExecuter, ContractRequest, native_init},
     p2p::{ClusterInfo, GossipService},
 };
 
@@ -31,12 +31,13 @@ impl Validator {
         let exit = Arc::new(AtomicBool::new(false));
 
         let storage = config.load_storage().unwrap();
+        // native_init(storage.clone());
         let chain = Arc::new(Chain::new(storage.clone()));
         let contract_executer =
             ContractExecuter::new(storage.clone(), exit.clone(), config.contracts_exec.threads);
-        let udp_socket = UdpSocket::bind(&config.network.addr).expect(&format!("Could not bind udp socket to {}", config.network.addr));
+        let udp_socket = UdpSocket::bind(&config.network.addr).unwrap_or_else(|_| panic!("Could not bind udp socket to {}", config.network.addr));
         let cluster_info = Arc::new(ClusterInfo::new(Arc::new(SigningKey::new(&mut rand::thread_rng())), storage));
-        let (gossip, gossip_receiver) = GossipService::new(cluster_info, udp_socket, &exit.clone());
+        let (gossip, gossip_receiver) = GossipService::new(cluster_info, udp_socket, &exit);
         Self {
             exit,
             chain,
