@@ -22,7 +22,6 @@ use {
         time::Duration,
     },
     thiserror::Error,
-    tracing::{debug, error},
 };
 
 const GOSSIP_BUFFER_SIZE: usize = 2_usize.pow(16);
@@ -128,7 +127,7 @@ fn discover(
             Ok(stream) => {
                 let _ = send_tcp(stream, cluster_info.new_discovery_message());
             }
-            Err(err) => debug!("error connecting to {:?}: {:?}", addr, err),
+            Err(err) => tracing::debug!("error connecting to {:?}: {:?}", addr, err),
         }
 
         if let Ok(message_bytes) = recv.recv_timeout(TIMEOUT) {
@@ -223,7 +222,7 @@ impl GossipService {
 
         let mut gossip = GossipService { threads: vec![] };
 
-        debug!("Listening on {}", socket.local_addr().unwrap());
+        tracing::info!("Listening on {}.", socket.local_addr().unwrap());
 
         let (req_send, req_recv) = channel();
 
@@ -297,10 +296,10 @@ impl GossipService {
             .spawn(move || {
                 while !exit.load(Ordering::Relaxed) {
                     match Self::signature_verifier_thread(&thread_pool, &sender, &receiver) {
-                        Err(P2PError::ReceiverTimeout(_)) => debug!("timeout somehow"),
+                        Err(P2PError::ReceiverTimeout(_)) => tracing::debug!("timeout somehow"),
                         Err(P2PError::Sender) => break,
                         Err(P2PError::ReceiverDisconnect) => break,
-                        Err(err) => error!("socket-consume: {:?}", err),
+                        Err(err) => tracing::error!("socket-consume: {:?}", err),
                         Ok(()) => (),
                     }
                 }
