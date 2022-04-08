@@ -65,17 +65,22 @@ impl Block {
             time: Utc::now().timestamp_millis(),
         }
     }
+
+    pub fn recipt_count(&self) -> usize {
+        self.recipts.len()
+    }
 }
 
 impl fmt::Debug for Block {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let time =
             DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(self.time / 1000, 0), Utc);
+
         f.debug_struct("Block")
             .field("digest", &base64::encode(self.digest))
             .field("previous_digest", &base64::encode(self.previous_digest))
-            .field("time", &time)
-            // .field("recipts", ) // TODO: somehow show something like [item1, ...] len: x
+            .field("time", &time.to_rfc2822())
+            // .field("recipts", &recipts) // TODO: somehow show something like [item1, ...] len: x
             .finish()
     }
 }
@@ -121,6 +126,7 @@ impl BlockStorage {
                 },
                 true,
             );
+            // call init for native contracts.
         }
     }
 }
@@ -203,7 +209,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn insert_new_block() {
+    fn new_block() {
         let chain = setup_chain();
         let block = chain.block_with_transactions(vec![ContractRecipt {
             contract_name: String::from("ginger"),
