@@ -27,7 +27,10 @@ const SYNC_RESPONDER_TIMEOUT: Duration = Duration::from_millis(100);
 
 // TODO: maybe somehow verify contracts with votes of the biggest share holders and then they will be able to access the api for the native currency?
 
+use rhai::EvalAltResult;
 use serde_json::to_string;
+
+use self::native::teral_transfer;
 
 #[derive(Debug, Error)]
 pub enum ContractsError {
@@ -99,6 +102,15 @@ impl ContractStorage {
         }
     }
 
+    fn native_transfer(&mut self, to: &str, amount: u64) -> Result<(), Box<EvalAltResult>> {
+        teral_transfer(
+            &self,
+            &serde_json::json!({ "from": self.curr_contract, "to": to, "amount": amount }),
+        )
+        .map_err(|_| EvalAltResult::ErrorFor(rhai::Position::new(1, 1)))?;
+        Ok(())
+    }
+
     fn native_get_segment(&self, key: &str) -> Option<Value> {
         let g = self.storage.get(&[b"native", key.as_bytes()].concat())?;
         serde_json::from_slice(&g).unwrap_or_default()
@@ -110,6 +122,7 @@ impl ContractStorage {
             to_string(&value).unwrap_or_default().as_bytes(),
         );
     }
+
     fn add_contract(&self, name: &str, code: &str, schema: &str, author: [u8; 32]) {
         let entrypoint_key = [name.as_bytes(), b"entrypoint"].concat();
         let schema_key = [name.as_bytes(), b"schema"].concat();
@@ -244,6 +257,7 @@ impl ContractExecuter {
                         engine.register_type::<ContractStorage>();
                         engine.register_fn("get", ContractStorage::regular_get_segment);
                         engine.register_fn("set", ContractStorage::regular_set_segment);
+                        engine.register_result_fn("native_transfer", ContractStorage::native_transfer);
                         engine.on_print(|_| {});
 
                         let scope = &mut Scope::new();

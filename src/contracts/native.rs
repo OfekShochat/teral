@@ -62,10 +62,14 @@ pub(crate) fn teral_transfer(storage: &ContractStorage, req: &Value) -> Result<(
     );
 
     let to = storage.native_get_segment(req["to"].as_str().unwrap());
+
     if let Some(to) = to {
         let balance = to["balance"].as_u64().unwrap() + req["amount"].as_u64().unwrap();
         storage.native_set_segment(req["to"].as_str().unwrap(), json!({ "balance": balance }));
     } else {
+        // if req["to"].as_str().unwrap().len() != 32 {
+        //     return Err(()); // names without 32 characters are contract names (most probably), and if we dont have it then no reason to waste money.
+        // }
         storage.native_set_segment(
             req["to"].as_str().unwrap(),
             json!({ "balance": req["amount"].as_u64().unwrap() }),
