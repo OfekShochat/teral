@@ -278,7 +278,9 @@ impl ContractExecuter {
                                 break;
                             }
 
-                            if let Some(job) = queue.get_and_maybe_delete() {
+                            if let Some(mut job) = queue.get_and_maybe_delete() {
+                                job.req["from"] = Value::String(base64::encode(job.author));
+
                                 let ok = Self::executer_thread(
                                     &mut storage,
                                     &mut cache,
