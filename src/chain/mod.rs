@@ -215,7 +215,7 @@ mod tests {
     #[serial]
     fn new_block() {
         let chain = setup_chain();
-        let block = chain.block_with_transactions(vec![ContractRecipt {
+        chain.block_with_transactions(vec![ContractRecipt {
             contract_name: String::from("ginger"),
             contract_method: String::from("transfer"),
             req: json!({ "from": "ginger", "to": "hello", "amount": 100_u64 }),

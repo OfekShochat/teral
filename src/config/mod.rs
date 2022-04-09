@@ -1,10 +1,7 @@
 use serde_derive::Deserialize;
 use std::{fs::read, net::SocketAddr, sync::Arc};
 
-use crate::{
-    storage::{RocksdbStorage, Storage},
-    validator::{LeaderSchedule, StdRngSchedule},
-};
+use crate::storage::{RocksdbStorage, Storage};
 
 #[derive(Deserialize)]
 pub struct TeralConfig {
@@ -28,18 +25,18 @@ impl TeralConfig {
         }
     }
 
-    pub fn get_scheduler(&self) -> Option<Arc<dyn LeaderSchedule>> {
-        match self.network.leader_schedule {
-            LeaderScheduleBackend::StdRng => Some(StdRngSchedule::new()),
-        }
-    }
+    // pub fn get_scheduler(&self) -> Option<Arc<dyn LeaderSchedule>> {
+    //     match self.network.leader_schedule {
+    //         LeaderScheduleBackend::StdRng => Some(StdRngSchedule::new()),
+    //     }
+    // }
 }
 
 #[derive(Deserialize)]
 pub struct NetworkConfig {
     pub addr: String,
     pub known_nodes: Vec<SocketAddr>,
-    pub leader_schedule: LeaderScheduleBackend,
+    // pub leader_schedule: LeaderScheduleBackend,
 }
 
 #[derive(Deserialize)]

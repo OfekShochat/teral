@@ -19,7 +19,7 @@ use {
 };
 
 pub struct Validator {
-    schedule: Arc<dyn LeaderSchedule>,
+    schedule: LeaderSchedule,
     exit: Arc<AtomicBool>,
     gossip: GossipService,
     chain: Arc<Chain>, // arc to share between here and the rpc service.
@@ -47,7 +47,7 @@ impl Validator {
             chain,
             contract_executer,
             gossip,
-            schedule: config.get_scheduler().unwrap(),
+            schedule: LeaderSchedule::new(),
         }
     }
 

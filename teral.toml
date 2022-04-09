@@ -9,7 +9,6 @@ path = "keypair.toml"
 [network]
 addr = "127.0.0.1:9911"
 known_nodes = [ "127.0.0.1:8080" ]
-leader_schedule = "stdrng"
 
 [contracts_exec]
 threads = 4
