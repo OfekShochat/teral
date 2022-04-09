@@ -41,6 +41,7 @@ pub(crate) fn execute_native(
             Ok(())
         }
         "transfer" => teral_transfer(storage, &job.req),
+        "stake" => teral_stake(storage, &job.req),
         _ => Err(()),
     }
 }
@@ -68,13 +69,17 @@ pub(crate) fn teral_transfer(storage: &ContractStorage, req: &Value) -> Result<(
         storage.native_set_segment(req["to"].as_str().unwrap(), json!({ "balance": balance }));
     } else {
         // if req["to"].as_str().unwrap().len() != 32 {
-        //     return Err(()); // names without 32 characters are contract names (most probably), and if we dont have it then no reason to waste money.
+        //     return Err(()); // names with 32 characters are not contract names (most probably), and if we dont have it then no reason to waste money.
         // }
         storage.native_set_segment(
             req["to"].as_str().unwrap(),
             json!({ "balance": req["amount"].as_u64().unwrap() }),
         );
     }
+    Ok(())
+}
+
+pub(crate) fn teral_stake(storage: &ContractStorage, req: &Value) -> Result<(), ()> {
     Ok(())
 }
 

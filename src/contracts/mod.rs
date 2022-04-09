@@ -68,7 +68,7 @@ fn validate_schema(schema: &str, req: &Value) -> Result<(), ContractsError> {
 pub(crate) struct ContractStorage {
     storage: Arc<dyn Storage>,
     curr_contract: String,
-    // contracts_to_execute: Vec<String>,
+    contracts_to_execute: Vec<String>,
 }
 
 unsafe impl Send for ContractStorage {}
@@ -78,12 +78,12 @@ impl ContractStorage {
         Self {
             storage,
             curr_contract: String::from(""),
-            // contracts_to_execute: vec![],
+            contracts_to_execute: vec![],
         }
     }
 
     fn set_curr_contract(&mut self, name: &str) {
-        // self.contracts_to_execute = vec![];
+        self.contracts_to_execute = vec![];
         self.curr_contract = name.to_string();
     }
 
@@ -105,20 +105,20 @@ impl ContractStorage {
         }
     }
 
-    // fn native_transfer(&mut self, to: &str, amount: u64) -> Result<(), Box<EvalAltResult>> {
-    //     teral_transfer(
-    //         &self,
-    //         &serde_json::json!({ "from": self.curr_contract, "to": to, "amount": amount }),
-    //     )
-    //     .map_err(|_| EvalAltResult::ErrorFor(rhai::Position::new(1, 1)))?;
-    //     // TODO: somehow execute the contract now instead of later.
-    //     if to.len() != 32 && self.get_author(&self.curr_contract).is_ok() {
-    //         self.contracts_to_execute.push(to.to_string());
-    //     } else {
-    //         return Err(Box::new(EvalAltResult::ErrorFor(rhai::Position::new(1, 1))));
-    //     }
-    //     Ok(())
-    // }
+    fn native_transfer(&mut self, to: &str, amount: u64) -> Result<(), Box<EvalAltResult>> {
+        teral_transfer(
+            &self,
+            &serde_json::json!({ "from": self.curr_contract, "to": to, "amount": amount }),
+        )
+        .map_err(|_| EvalAltResult::ErrorFor(rhai::Position::new(1, 1)))?;
+        // TODO: somehow execute the contract now instead of later.
+        if self.get_author(&self.curr_contract).is_ok() {
+            self.contracts_to_execute.push(to.to_string());
+        } else {
+            return Err(Box::new(EvalAltResult::ErrorFor(rhai::Position::new(1, 1))));
+        }
+        Ok(())
+    }
 
     fn native_get_segment(&self, key: &str) -> Option<Value> {
         let g = self.storage.get(&[b"native", key.as_bytes()].concat())?;
@@ -266,10 +266,10 @@ impl ContractExecuter {
                         engine.register_type::<ContractStorage>();
                         engine.register_fn("get", ContractStorage::regular_get_segment);
                         engine.register_fn("set", ContractStorage::regular_set_segment);
-                        // engine.register_result_fn(
-                        //     "native_transfer",
-                        //     ContractStorage::native_transfer,
-                        // );
+                        engine.register_result_fn(
+                            "native_transfer",
+                            ContractStorage::native_transfer,
+                        );
                         engine.on_print(|_| {});
 
                         let scope = &mut Scope::new();
