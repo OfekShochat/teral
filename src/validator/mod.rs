@@ -32,13 +32,14 @@ impl Validator {
 
         let storage = config.load_storage().unwrap();
         // native_init(storage.clone());
-        let chain = Arc::new(Chain::new(storage.clone()));
+        let keypair = Arc::new(SigningKey::new(&mut rand::thread_rng()));
+        let chain = Arc::new(Chain::new(storage.clone(), keypair.verification_key().to_bytes()));
         let contract_executer =
             ContractExecuter::new(storage.clone(), exit.clone(), config.contracts_exec.threads);
         let udp_socket = UdpSocket::bind(&config.network.addr)
             .unwrap_or_else(|_| panic!("Could not bind udp socket to {}", config.network.addr));
         let cluster_info = Arc::new(ClusterInfo::new(
-            Arc::new(SigningKey::new(&mut rand::thread_rng())),
+            keypair,
             storage,
         ));
         let (gossip, gossip_receiver) = GossipService::new(cluster_info, udp_socket, &exit);

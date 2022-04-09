@@ -4,6 +4,7 @@ use std::{
 };
 
 use chrono::{DateTime, NaiveDateTime, Utc};
+use ed25519_consensus::VerificationKey;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use sha3::{Digest, Sha3_256};
@@ -54,15 +55,17 @@ pub fn requests_to_recipts(req: Vec<ContractRequest>) -> Vec<ContractRecipt> {
 #[derive(Serialize, Deserialize)]
 pub struct Block {
     digest: [u8; 32],
+    beneficiary: [u8; 32],
     previous_digest: [u8; 32],
     recipts: Vec<ContractRecipt>,
     time: i64,
 }
 
 impl Block {
-    pub fn with_transactions(transactions: Vec<ContractRecipt>) -> Self {
+    pub fn with_transactions(transactions: Vec<ContractRecipt>, beneficiary: [u8; 32]) -> Self {
         Self {
             digest: [0; 32],
+            beneficiary,
             previous_digest: [0; 32],
             recipts: transactions,
             time: Utc::now().timestamp_millis(),
@@ -82,6 +85,7 @@ impl fmt::Debug for Block {
         f.debug_struct("Block")
             .field("digest", &base64::encode(self.digest))
             .field("previous_digest", &base64::encode(self.previous_digest))
+            .field("beneficiary", &base64::encode(self.beneficiary))
             .field("time", &time.to_rfc2822())
             // .field("recipts", &recipts) // TODO: somehow show something like [item1, ...] len: x
             .finish()
@@ -123,6 +127,7 @@ impl BlockStorage {
             self.insert_block(
                 Block {
                     digest: [0; 32],
+                    beneficiary: [0; 32],
                     previous_digest: [0; 32],
                     recipts: vec![],
                     time: 0,
@@ -154,13 +159,14 @@ impl BlockBuilder {
         self.transactions.push(tx);
     }
 
-    fn build(self, previous_digest: [u8; 32]) -> Block {
+    fn build(self, beneficiary: [u8; 32], previous_digest: [u8; 32]) -> Block {
         let time = Utc::now().timestamp_millis();
         let buf = &mut [0; 32];
         hash_recipts(&self.transactions, time, buf);
         Block {
             digest: *buf,
             previous_digest,
+            beneficiary,
             recipts: self.transactions,
             time,
         }
@@ -170,10 +176,11 @@ impl BlockBuilder {
 pub struct Chain {
     storage: BlockStorage,
     finalized_block: Block,
+    pubkey: [u8; 32],
 }
 
 impl Chain {
-    pub fn new(storage: Arc<dyn Storage>) -> Self {
+    pub fn new(storage: Arc<dyn Storage>, pubkey: [u8; 32]) -> Self {
         let storage = BlockStorage::new(storage);
         storage.maybe_bootstrap();
 
@@ -183,6 +190,7 @@ impl Chain {
         Self {
             storage,
             finalized_block,
+            pubkey,
         }
     }
 
@@ -191,7 +199,7 @@ impl Chain {
     }
 
     pub fn block_with_transactions(&self, transactions: Vec<ContractRecipt>) -> Block {
-        BlockBuilder::with_transactions(transactions).build(self.finalized_block.digest)
+        BlockBuilder::with_transactions(transactions).build(self.pubkey, self.finalized_block.digest)
     }
 }
 
@@ -202,13 +210,14 @@ mod tests {
     use crate::storage::{RocksdbStorage, Storage};
 
     use super::{Chain, ContractRecipt};
+    use ed25519_consensus::SigningKey;
     use serde_json::json;
     use serial_test::serial;
 
     fn setup_chain() -> Chain {
         let config = Default::default();
         let storage: Arc<dyn Storage> = RocksdbStorage::load(&config);
-        Chain::new(storage)
+        Chain::new(storage, SigningKey::new(&mut rand::thread_rng()).verification_key().to_bytes())
     }
 
     #[test]
