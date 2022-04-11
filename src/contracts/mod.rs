@@ -16,7 +16,10 @@ use {
     thiserror::Error,
 };
 
+mod language;
 mod native;
+
+pub use language::execute;
 
 pub fn native_init(storage: Arc<dyn Storage>) {
     native::teral_init(ContractStorage::new(storage));
