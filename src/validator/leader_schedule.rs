@@ -1,4 +1,8 @@
-use rand::{prelude::{StdRng, Distribution}, Rng, SeedableRng, distributions::WeightedIndex};
+use rand::{
+    distributions::WeightedIndex,
+    prelude::{Distribution, StdRng},
+    Rng, SeedableRng,
+};
 
 const SCHEDULE_SEED: u64 = 13409387784011516370;
 

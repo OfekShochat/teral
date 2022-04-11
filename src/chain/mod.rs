@@ -199,7 +199,8 @@ impl Chain {
     }
 
     pub fn block_with_transactions(&self, transactions: Vec<ContractRecipt>) -> Block {
-        BlockBuilder::with_transactions(transactions).build(self.pubkey, self.finalized_block.digest)
+        BlockBuilder::with_transactions(transactions)
+            .build(self.pubkey, self.finalized_block.digest)
     }
 }
 
@@ -217,7 +218,12 @@ mod tests {
     fn setup_chain() -> Chain {
         let config = Default::default();
         let storage: Arc<dyn Storage> = RocksdbStorage::load(&config);
-        Chain::new(storage, SigningKey::new(&mut rand::thread_rng()).verification_key().to_bytes())
+        Chain::new(
+            storage,
+            SigningKey::new(&mut rand::thread_rng())
+                .verification_key()
+                .to_bytes(),
+        )
     }
 
     #[test]
