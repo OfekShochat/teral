@@ -16,9 +16,11 @@ use {
     thiserror::Error,
 };
 
-mod language;
+pub(crate) mod language;
+mod language_compiler;
 mod native;
 
+pub use language_compiler::parse;
 pub use language::execute;
 
 pub fn native_init(storage: Arc<dyn Storage>) {

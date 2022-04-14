@@ -7,6 +7,7 @@ use thiserror::Error;
 use crate::storage::Storage;
 
 const STACK_SIZE: usize = 32;
+const RETURN_STACK_SIZE: usize = 32;
 
 #[derive(Debug, Error)]
 enum VmError {
@@ -23,7 +24,7 @@ enum VmError {
 }
 
 #[derive(Debug)]
-enum Opcode {
+pub enum Opcode {
     Terminate,
     Add,
     Sub,
@@ -33,12 +34,17 @@ enum Opcode {
     Get,
     Push(u8),
     Swap(u8),
+    MoveToReturn(u8),
+    CopyToReturn(u8),
+    CopyToMain(u8),
+    ClearReturn,
     Jumpif,
     Jump,
+    Dup,
 }
 
 impl Opcode {
-    fn from_u8(opcode: u8) -> Option<Self> {
+    pub fn from_u8(opcode: u8) -> Option<Self> {
         match opcode {
             0x00 => Some(Self::Terminate),
             0x01 => Some(Self::Add),
@@ -51,7 +57,33 @@ impl Opcode {
             0x27..=0x47 => Some(Self::Swap(opcode - 0x07)),
             0x48 => Some(Self::Jumpif),
             0x49 => Some(Self::Jump),
+            0x4a..=0x6a => Some(Self::CopyToMain(opcode - 0x4a)),
+            0x6b => Some(Self::Dup),
+            0x6c => Some(Self::ClearReturn),
+            0x6d..=0x8d => Some(Self::MoveToReturn(opcode - 0x6c)),
+            0x8e..=0xAe => Some(Self::CopyToReturn(opcode - 0x6d)),
             _ => None,
+        }
+    }
+
+    pub fn to_u8(&self) -> u8 {
+        match self {
+            Self::Terminate => 0x00,
+            Self::Add => 0x01,
+            Self::Sub => 0x02,
+            Self::Mul => 0x03,
+            Self::Div => 0x04,
+            Self::Store => 0x05,
+            Self::Get => 0x06,
+            Self::Push(n) => 0x07 + n - 1,
+            Self::MoveToReturn(n) => 0x6d + n - 1,
+            Self::CopyToReturn(n) => 0x8e + n - 1,
+            Self::CopyToMain(n) => 0x4b + n - 1,
+            Self::Swap(n) => 0x27 + n - 1,
+            Self::Jumpif => 0x48,
+            Self::Jump => 0x49,
+            Self::Dup => 0x6b,
+            Self::ClearReturn => 0x6c,
         }
     }
 }
@@ -59,14 +91,18 @@ impl Opcode {
 #[derive(Debug)]
 struct Stack {
     stack: [U256; STACK_SIZE],
+    return_stack: [U256; RETURN_STACK_SIZE],
     stack_pos: usize,
+    return_stack_pos: usize,
 }
 
 impl Stack {
     fn new() -> Self {
         Self {
             stack: [U256::zero(); STACK_SIZE],
+            return_stack: [U256::zero(); RETURN_STACK_SIZE],
             stack_pos: 1,
+            return_stack_pos: 1,
         }
     }
 
@@ -87,6 +123,10 @@ impl Stack {
         ret
     }
 
+    fn peek(&mut self) -> U256 {
+        self.stack[self.stack_pos - 1]
+    }
+
     fn push(&mut self, value: U256) -> Result<(), VmError> {
         if self.stack_pos > STACK_SIZE {
             Err(VmError::StackOverflow)
@@ -97,10 +137,29 @@ impl Stack {
         }
     }
 
+    fn push_to_return(&mut self, value: U256) -> Result<(), VmError> {
+        if self.return_stack_pos > RETURN_STACK_SIZE {
+            Err(VmError::StackOverflow)
+        } else {
+            self.return_stack[self.return_stack_pos - 1] = value;
+            self.return_stack_pos += 1;
+            Ok(())
+        }
+    }
+
     fn swap(&mut self, nth: u8) -> Result<(), VmError> {
         assert!(nth <= self.stack.len() as u8);
         self.stack.swap(self.stack_pos - 1, nth as usize - 1);
         Ok(())
+    }
+
+    fn dup(&mut self) -> Result<(), VmError> {
+        if self.stack_pos >= STACK_SIZE {
+            Err(VmError::StackOverflow)
+        } else {
+            self.stack[self.stack_pos] = self.stack[self.stack_pos - 1];
+            Ok(())
+        }
     }
 }
 
@@ -229,26 +288,49 @@ impl Vm {
                     U256::from_little_endian(&self.opcodes[self.index - n as usize..self.index]);
                 self.stack.push(value)?;
             }
+            Opcode::MoveToReturn(n) => {
+                for _ in 0..n {
+                    let value = self.stack.pop()?;
+                    self.stack.push_to_return(value)?;
+                }
+            }
+            Opcode::CopyToReturn(n) => {
+                for i in 0..n {
+                    let value = self.stack.stack[self.stack.stack.len() - i as usize];
+                    self.stack.push_to_return(value)?;
+                }
+            }
+            Opcode::CopyToMain(n) => {
+                self.stack.push(self.stack.return_stack[n as usize])?;
+            }
+            Opcode::ClearReturn => {
+                self.stack.return_stack.iter_mut().for_each(|elem| *elem = U256::zero());
+                self.stack.return_stack_pos = 1;
+            }
             Opcode::Swap(n) => self.stack.swap(n)?,
             Opcode::Jumpif => {
-                let cond = self.stack.pop()?;
                 let alternative_offset = self.stack.pop()?;
+                let cond = self.stack.pop()?;
                 if cond == U256::zero() {
                     if alternative_offset < U256::from(self.opcodes.len() - self.index) {
                         self.index += alternative_offset.as_usize() - 1;
                     } else {
-                        return Err(VmError::InvalidJump(alternative_offset + U256::from(self.index), self.opcodes.len()));
+                        return Err(VmError::InvalidJump(
+                            alternative_offset + U256::from(self.index),
+                            self.opcodes.len(),
+                        ));
                     }
                 }
             }
             Opcode::Jump => {
                 let alternative = self.stack.pop()?;
                 if alternative < U256::from(self.opcodes.len() - self.index) {
-                    self.index += alternative.as_usize() - 1;
+                    self.index += alternative.as_usize();
                 } else {
-                    return Err(VmError::InvalidJump(alternative, self.opcodes.len()));
+                    return Err(VmError::InvalidJump(U256::from(self.index) + alternative, self.opcodes.len()));
                 }
             }
+            Opcode::Dup => self.stack.dup()?,
         }
         Ok(())
     }
@@ -268,11 +350,11 @@ impl Vm {
 }
 
 pub fn execute(_opcodes: Vec<u8>, args: Vec<U256>, storage: Arc<dyn Storage>) {
-    let opcodes = vec![0x48, 0x00, 0x07, 4];
+    // let opcodes = vec![0x48, 0x00, 0x07, 4];
     let st = std::time::Instant::now();
-    let mut vm =
-        Vm::with_arguments([0; 32], opcodes, vec![U256::from(2), U256::from(0)], storage).unwrap();
+    let mut vm = Vm::with_arguments([0; 32], _opcodes, vec![], storage).unwrap();
     while !vm.should_stop() {
+        // println!("{:?}", vm);
         vm.advance().unwrap();
     }
     let end = st.elapsed();
