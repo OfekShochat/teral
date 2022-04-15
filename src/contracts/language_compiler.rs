@@ -284,7 +284,7 @@ impl Lexer {
     fn less_than(&self) -> Result<TokenKind, CompileError> {
         match self.second() {
             Ok('=') => Ok(TokenKind::Op(Bin::Leq)),
-            Err(_) => Ok(TokenKind::Op(Bin::Geq)),
+            Err(_) => Ok(TokenKind::Op(Bin::Lt)),
             _ => Err(CompileError::UnexpectedToken(
                 self.second().unwrap().to_string(),
             )),
@@ -305,7 +305,7 @@ impl Lexer {
         let kind = match self.first() {
             'a'..='z' | 'A'..='Z' | '_' => self.identifier()?,
             '0'..='9' => self.number()?,
-            '=' if self.second()? == '_' => TokenKind::EqSign,
+            '=' if self.second()? == '=' => TokenKind::EqSign,
             '-' => TokenKind::Op(Bin::Sub),
             '+' => TokenKind::Op(Bin::Add),
             '*' => TokenKind::Op(Bin::Mul),
@@ -538,6 +538,15 @@ impl Compiler {
         Ok(())
     }
 
+    fn require(&mut self) -> Result<(), CompileError> {
+        self.push_opcode(Opcode::Push(1));
+        self.output.push(1);
+        self.push_opcode(Opcode::Jumpifnot);
+        self.push_opcode(Opcode::Terminate);
+        self.bump()?;
+        Ok(())
+    }
+
     fn push_opcode(&mut self, opcode: Opcode) {
         self.output.push(opcode.to_u8());
     }
@@ -549,6 +558,7 @@ impl Compiler {
             TokenKind::Keyword(Keyword::Peek) => self.bind_block(false)?,
             TokenKind::Keyword(Keyword::Fnk) => self.function()?,
             TokenKind::Keyword(Keyword::If) => self.if_()?,
+            TokenKind::Keyword(Keyword::Require) => self.require()?,
             TokenKind::Ident => self.identifier()?,
             TokenKind::Op(op) => self.op(op)?,
             _ => panic!("{:?}", self.first().kind),
@@ -566,11 +576,10 @@ fn transfer from to amount in
     0x1
     1000_u64
     let from to amount in
-        amount
+        1
         if
-            100_u8 amount +
-        else
-            31_u32
+            amount 100_u8 >
+            require
         end
     end
 end"#

@@ -44,6 +44,7 @@ pub enum Opcode {
     CopyToMain(u8),
     ClearReturn,
     Jumpif,
+    Jumpifnot,
     Jump,
     Dup,
 }
@@ -72,6 +73,7 @@ impl Opcode {
             0xb1 => Some(Self::Gt),
             0xb2 => Some(Self::Geq),
             0xb3 => Some(Self::Leq),
+            0xb4 => Some(Self::Jumpifnot),
             _ => None,
         }
     }
@@ -96,6 +98,7 @@ impl Opcode {
             Self::CopyToMain(n) => 0x4b + n - 1,
             Self::Swap(n) => 0x27 + n - 1,
             Self::Jumpif => 0x48,
+            Self::Jumpifnot => 0xb4,
             Self::Jump => 0x49,
             Self::Dup => 0x6b,
             Self::ClearReturn => 0x6c,
@@ -255,9 +258,9 @@ impl Vm {
     fn advance(&mut self) -> Result<(), VmError> {
         let op = self.next().ok_or(VmError::ShouldStop)?;
 
-        println!("{:?}", op);
         match op {
             Opcode::Terminate => self.terminated = true,
+            // TODO: macro...
             Opcode::Add => {
                 let rhs = self.stack.pop()?;
                 let lhs = self.stack.pop()?;
@@ -288,23 +291,23 @@ impl Vm {
                 self.stack.push(U256::from((lhs == rhs) as u8))?;
             }
             Opcode::Lt => {
-                let lhs = self.stack.pop()?;
                 let rhs = self.stack.pop()?;
+                let lhs = self.stack.pop()?;
                 self.stack.push(U256::from((lhs < rhs) as u8))?;
             }
             Opcode::Gt => {
-                let lhs = self.stack.pop()?;
                 let rhs = self.stack.pop()?;
+                let lhs = self.stack.pop()?;
                 self.stack.push(U256::from((lhs > rhs) as u8))?;
             }
             Opcode::Geq => {
-                let lhs = self.stack.pop()?;
                 let rhs = self.stack.pop()?;
+                let lhs = self.stack.pop()?;
                 self.stack.push(U256::from((lhs >= rhs) as u8))?;
             }
             Opcode::Leq => {
-                let lhs = self.stack.pop()?;
                 let rhs = self.stack.pop()?;
+                let lhs = self.stack.pop()?;
                 self.stack.push(U256::from((lhs <= rhs) as u8))?;
             }
             Opcode::Store => {
@@ -322,9 +325,6 @@ impl Vm {
             }
             Opcode::Push(n) => {
                 self.index += n as usize;
-                if n == 1 {
-                    println!("{:?}", U256::from_little_endian(&self.opcodes[self.index - n as usize..self.index]));
-                }
                 if self.index > self.opcodes.len() {
                     return Err(VmError::ExpectedValue(self.index - self.opcodes.len()));
                 }
@@ -360,6 +360,20 @@ impl Vm {
                 let alternative_offset = self.stack.pop()?;
                 let cond = self.stack.pop()?;
                 if cond == U256::zero() {
+                    if alternative_offset < U256::from(self.opcodes.len() - self.index) {
+                        self.index += alternative_offset.as_usize() + 1;
+                    } else {
+                        return Err(VmError::InvalidJump(
+                            alternative_offset + U256::from(self.index),
+                            self.opcodes.len(),
+                        ));
+                    }
+                }
+            }
+            Opcode::Jumpifnot => {
+                let alternative_offset = self.stack.pop()?;
+                let cond = self.stack.pop()?;
+                if cond != U256::zero() {
                     if alternative_offset < U256::from(self.opcodes.len() - self.index) {
                         self.index += alternative_offset.as_usize() + 1;
                     } else {
