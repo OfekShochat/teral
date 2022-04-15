@@ -59,8 +59,13 @@ pub enum TokenKind {
     Keyword(Keyword),
     Type(Type),
     Num(Base, Type),
+    Op(Bin),
     Ident,
     EqSign,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Bin {
     Sub,
     Add,
     Mul,
@@ -211,8 +216,18 @@ impl Lexer {
     }
 
     fn number(&mut self) -> Result<TokenKind, CompileError> {
-        let (base, word) = if self.first() == '0' && self.second()? == 'x' {
-            (16, &self.curr()[2..])
+        let (base, word) = if self.first() == '0' {
+            match self.second() {
+                Ok('x') => (16, &self.curr()[2..]),
+                Ok('_') => (10, self.curr()),
+                Err(_) => (10, self.curr()),
+                _ => {
+                    return Err(CompileError::CantInterpret(
+                        self.curr().to_string(),
+                        "num".to_string(),
+                    ))
+                }
+            }
         } else {
             (10, self.curr())
         };
@@ -268,8 +283,8 @@ impl Lexer {
 
     fn less_than(&self) -> Result<TokenKind, CompileError> {
         match self.second() {
-            Ok('=') => Ok(TokenKind::Leq),
-            Err(_) => Ok(TokenKind::Geq),
+            Ok('=') => Ok(TokenKind::Op(Bin::Leq)),
+            Err(_) => Ok(TokenKind::Op(Bin::Geq)),
             _ => Err(CompileError::UnexpectedToken(
                 self.second().unwrap().to_string(),
             )),
@@ -278,8 +293,8 @@ impl Lexer {
 
     fn more_than(&self) -> Result<TokenKind, CompileError> {
         match self.second() {
-            Ok('=') => Ok(TokenKind::Geq),
-            Err(_) => Ok(TokenKind::Gt),
+            Ok('=') => Ok(TokenKind::Op(Bin::Geq)),
+            Err(_) => Ok(TokenKind::Op(Bin::Gt)),
             _ => Err(CompileError::UnexpectedToken(
                 self.second().unwrap().to_string(),
             )),
@@ -290,11 +305,11 @@ impl Lexer {
         let kind = match self.first() {
             'a'..='z' | 'A'..='Z' | '_' => self.identifier()?,
             '0'..='9' => self.number()?,
-            '=' => TokenKind::EqSign,
-            '-' => TokenKind::Sub,
-            '+' => TokenKind::Add,
-            '*' => TokenKind::Mul,
-            '/' => TokenKind::Div,
+            '=' if self.second()? == '_' => TokenKind::EqSign,
+            '-' => TokenKind::Op(Bin::Sub),
+            '+' => TokenKind::Op(Bin::Add),
+            '*' => TokenKind::Op(Bin::Mul),
+            '/' => TokenKind::Op(Bin::Div),
             '<' => self.less_than()?,
             '>' => self.more_than()?,
             _ => {
@@ -432,16 +447,17 @@ impl Compiler {
     }
 
     fn bind_block(&mut self, pop: bool) -> Result<(), CompileError> {
-        let names = self.get_parameters()?;
+        let names = &mut self.get_parameters()?;
         if pop {
             self.push_opcode(Opcode::MoveToReturn(names.len().try_into().unwrap()));
         } else {
             self.push_opcode(Opcode::CopyToReturn(names.len().try_into().unwrap()));
         }
-        self.binded_context = names;
+        self.binded_context.append(names);
 
         self.advance_until_end()?;
-        self.push_opcode(Opcode::ClearReturn);
+        self.push_opcode(Opcode::ClearReturn); // TODO: clear only the ones we added rn.
+        self.binded_context.truncate(names.len());
         Ok(())
     }
 
@@ -460,22 +476,47 @@ impl Compiler {
     }
 
     fn if_(&mut self) -> Result<(), CompileError> {
-        let before = self.index;
         self.bump()?;
+        let to = self.input[self.index..]
+            .iter()
+            .position(|tok| {
+                tok.kind != TokenKind::Keyword(Keyword::Else)
+                    || tok.kind != TokenKind::Keyword(Keyword::End)
+            })
+            .expect("Could not find else/end keywords to end `if`");
+        self.push_opcode(Opcode::Push(1));
+        self.output.push(to as u8);
+        self.push_opcode(Opcode::Jumpif);
+
         self.advance_while(|k| {
             k != TokenKind::Keyword(Keyword::Else) && k != TokenKind::Keyword(Keyword::End)
         })?;
+
         let with_else = self.input[self.index - 1].kind == TokenKind::Keyword(Keyword::Else);
-        self.push_opcode(Opcode::Push(1));
-        self.output.push((self.index - before) as u8);
-        self.push_opcode(Opcode::Jumpif);
         if with_else {
             self.push_opcode(Opcode::Push(1));
             let before = self.output.len();
             self.push_opcode(Opcode::Jump);
             self.advance_until_end()?;
-            self.output.insert(before, (self.output.len() - before - 1) as u8);
+            self.output
+                .insert(before, (self.output.len() - before - 1) as u8);
         }
+        Ok(())
+    }
+
+    fn op(&mut self, op: Bin) -> Result<(), CompileError> {
+        let kind = match op {
+            Bin::Sub => Opcode::Sub,
+            Bin::Add => Opcode::Add,
+            Bin::Mul => Opcode::Mul,
+            Bin::Div => Opcode::Div,
+            Bin::Lt => Opcode::Lt,
+            Bin::Gt => Opcode::Gt,
+            Bin::Geq => Opcode::Geq,
+            Bin::Leq => Opcode::Geq,
+        };
+        self.push_opcode(kind);
+        self.bump()?;
         Ok(())
     }
 
@@ -509,6 +550,7 @@ impl Compiler {
             TokenKind::Keyword(Keyword::Fnk) => self.function()?,
             TokenKind::Keyword(Keyword::If) => self.if_()?,
             TokenKind::Ident => self.identifier()?,
+            TokenKind::Op(op) => self.op(op)?,
             _ => panic!("{:?}", self.first().kind),
         }
         Ok(())
@@ -520,14 +562,19 @@ pub fn parse(input: String) {
     let st = std::time::Instant::now();
     let input = lex(r#"
 fn transfer from to amount in
-    0x29d7d1dd5b6f9c864d9db560d72a247c178ae86b
-    let poopoo in
-        poopoo
+    0x2
+    0x1
+    1000_u64
+    let from to amount in
+        amount
         if
+            100_u8 amount +
         else
+            31_u32
         end
     end
-end"#.to_string());
+end"#
+        .to_string());
     let mut compiler = Compiler::new(input);
     compiler.advance().unwrap();
     println!("{:?}", st.elapsed());
@@ -541,16 +588,20 @@ end"#.to_string());
     println!("\n\n");
 }
 
-fn somewhat_decompile(input: &[u8]) -> Vec<Opcode> {
+fn somewhat_decompile(input: &[u8]) -> Vec<(Opcode, U256)> {
     let mut out = vec![];
     let mut i = 0;
     while i < input.len() {
         if let Some(poop) = Opcode::from_u8(input[i]) {
-            match poop {
-                Opcode::Push(n) => i += n as usize,
-                _ => {}
-            }
-            out.push(poop);
+            let a = match poop {
+                Opcode::Push(n) => {
+                    i += n as usize;
+                    // (poop, U256::from_little_endian(&input[i - n as usize..i as usize]))
+                    (poop, U256::from(0))
+                }
+                _ => (poop, U256::from(0_usize)),
+            };
+            out.push(a);
         }
         i += 1;
     }
@@ -587,12 +638,39 @@ pub fn lex(input: String) -> Vec<Token> {
     let mut tokens = vec![];
     while !lexer.should_stop() {
         let possible = lexer.advance();
-        if let Err(err) = possible {
-            eprintln!("{}", err);
-            break;
-        }
         tokens.push(possible.unwrap());
     }
     // println!("{:?}", tokens);
     tokens
 }
+
+// #[cfg(test)]
+// mod tests {
+//     use super::lex;
+
+//     #[test]
+//     fn if_statements() {
+//         let input = lex(r#"
+// fn transfer from to amount in
+//     0x29d7d1dd5b6f9c864d9db560d72a247c178ae86b
+//     let poopoo in
+//         0_u32
+//         if
+//             100_u8
+//         else
+//             31_u32
+//         end
+//     end
+// end"#.to_string());
+//         let mut compiler = Compiler::new(input);
+//         compiler.advance().unwrap();
+//         println!("{:?}", st.elapsed());
+//         println!("{:?} {:?}", compiler.functions, compiler.output.len());
+//         println!("{:?}", somewhat_decompile(&compiler.output));
+//         super::execute(
+//             compiler.output.clone(),
+//             vec![],
+//             RocksdbStorage::load(&Default::default()),
+//         );
+//     }
+// }

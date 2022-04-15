@@ -30,6 +30,11 @@ pub enum Opcode {
     Sub,
     Mul,
     Div,
+    Eqi,
+    Lt,
+    Gt,
+    Geq,
+    Leq,
     Store,
     Get,
     Push(u8),
@@ -61,7 +66,12 @@ impl Opcode {
             0x6b => Some(Self::Dup),
             0x6c => Some(Self::ClearReturn),
             0x6d..=0x8d => Some(Self::MoveToReturn(opcode - 0x6c)),
-            0x8e..=0xAe => Some(Self::CopyToReturn(opcode - 0x6d)),
+            0x8e..=0xae => Some(Self::CopyToReturn(opcode - 0x6d)),
+            0xaf => Some(Self::Eqi),
+            0xb0 => Some(Self::Lt),
+            0xb1 => Some(Self::Gt),
+            0xb2 => Some(Self::Geq),
+            0xb3 => Some(Self::Leq),
             _ => None,
         }
     }
@@ -73,6 +83,11 @@ impl Opcode {
             Self::Sub => 0x02,
             Self::Mul => 0x03,
             Self::Div => 0x04,
+            Self::Eqi => 0xaf,
+            Self::Lt => 0xb0,
+            Self::Gt => 0xb1,
+            Self::Geq => 0xb2,
+            Self::Leq => 0xb3,
             Self::Store => 0x05,
             Self::Get => 0x06,
             Self::Push(n) => 0x07 + n - 1,
@@ -240,31 +255,57 @@ impl Vm {
     fn advance(&mut self) -> Result<(), VmError> {
         let op = self.next().ok_or(VmError::ShouldStop)?;
 
+        println!("{:?}", op);
         match op {
             Opcode::Terminate => self.terminated = true,
             Opcode::Add => {
-                let lhs = self.stack.pop()?;
                 let rhs = self.stack.pop()?;
+                let lhs = self.stack.pop()?;
                 self.stack.push(lhs + rhs)?;
             }
             Opcode::Sub => {
-                let lhs = self.stack.pop()?;
                 let rhs = self.stack.pop()?;
+                let lhs = self.stack.pop()?;
                 self.stack.push(lhs - rhs)?;
             }
             Opcode::Mul => {
-                let lhs = self.stack.pop()?;
                 let rhs = self.stack.pop()?;
+                let lhs = self.stack.pop()?;
                 self.stack.push(lhs * rhs)?;
             }
             Opcode::Div => {
-                let lhs = self.stack.pop()?;
                 let rhs = self.stack.pop()?;
+                let lhs = self.stack.pop()?;
                 if rhs.is_zero() {
                     self.stack.push(U256::zero())?;
                 } else {
                     self.stack.push(lhs / rhs)?;
                 }
+            }
+            Opcode::Eqi => {
+                let rhs = self.stack.pop()?;
+                let lhs = self.stack.pop()?;
+                self.stack.push(U256::from((lhs == rhs) as u8))?;
+            }
+            Opcode::Lt => {
+                let lhs = self.stack.pop()?;
+                let rhs = self.stack.pop()?;
+                self.stack.push(U256::from((lhs < rhs) as u8))?;
+            }
+            Opcode::Gt => {
+                let lhs = self.stack.pop()?;
+                let rhs = self.stack.pop()?;
+                self.stack.push(U256::from((lhs > rhs) as u8))?;
+            }
+            Opcode::Geq => {
+                let lhs = self.stack.pop()?;
+                let rhs = self.stack.pop()?;
+                self.stack.push(U256::from((lhs >= rhs) as u8))?;
+            }
+            Opcode::Leq => {
+                let lhs = self.stack.pop()?;
+                let rhs = self.stack.pop()?;
+                self.stack.push(U256::from((lhs <= rhs) as u8))?;
             }
             Opcode::Store => {
                 let value = self.stack.pop()?;
@@ -281,6 +322,9 @@ impl Vm {
             }
             Opcode::Push(n) => {
                 self.index += n as usize;
+                if n == 1 {
+                    println!("{:?}", U256::from_little_endian(&self.opcodes[self.index - n as usize..self.index]));
+                }
                 if self.index > self.opcodes.len() {
                     return Err(VmError::ExpectedValue(self.index - self.opcodes.len()));
                 }
@@ -289,14 +333,18 @@ impl Vm {
                 self.stack.push(value)?;
             }
             Opcode::MoveToReturn(n) => {
+                let mut poped = Vec::with_capacity(n as usize);
                 for _ in 0..n {
-                    let value = self.stack.pop()?;
+                    poped.push(self.stack.pop()?);
+                }
+                for value in poped.into_iter().rev() {
                     self.stack.push_to_return(value)?;
                 }
             }
             Opcode::CopyToReturn(n) => {
+                let initial_pos = self.stack.stack_pos - n as usize;
                 for i in 0..n {
-                    let value = self.stack.stack[self.stack.stack.len() - i as usize];
+                    let value = self.stack.stack[initial_pos + i as usize];
                     self.stack.push_to_return(value)?;
                 }
             }
@@ -313,7 +361,7 @@ impl Vm {
                 let cond = self.stack.pop()?;
                 if cond == U256::zero() {
                     if alternative_offset < U256::from(self.opcodes.len() - self.index) {
-                        self.index += alternative_offset.as_usize() - 1;
+                        self.index += alternative_offset.as_usize() + 1;
                     } else {
                         return Err(VmError::InvalidJump(
                             alternative_offset + U256::from(self.index),

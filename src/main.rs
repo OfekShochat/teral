@@ -1,6 +1,6 @@
 use primitive_types::U256;
 
-use crate::{config::TeralConfig, validator::Validator, contracts::execute};
+use crate::{config::TeralConfig, validator::Validator, contracts::{execute, parse}};
 
 mod chain;
 mod config;
@@ -20,6 +20,33 @@ fn main() {
 
     // TODO: how are we gonna verify a request is valid? we can make `from` a standard key that we
     // insert.
+
+    let input = r#"
+mapping Balances
+fn transfer from to amount in
+    Balances from get
+    peek from_balance
+    require
+    from_balance amount > require
+
+    Balances
+    from
+    from_balance amount -
+    store
+
+    Balances to get
+    let to_balance if
+        Balances to
+        to_balance amount +
+        store
+    else
+        Balances
+        to amount
+        store
+    end
+end
+"#.to_string();
+    parse(input);
 
     validator.schedule_contract(contracts::ContractRequest::new(
         [0; 32],

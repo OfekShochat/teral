@@ -1,5 +1,7 @@
+use chrono::DateTime;
+
 use {
-    crate::storage::Storage,
+    crate::{chain::Chain, storage::Storage},
     bincode::Options,
     chrono::Utc,
     ed25519_consensus::{Signature, SigningKey, VerificationKey, VerificationKeyBytes},
@@ -27,6 +29,7 @@ use {
 const GOSSIP_BUFFER_SIZE: usize = 2_usize.pow(16);
 const RECEIVER_BUFSIZE: usize = 1024;
 const RECV_TIMEOUT: Duration = Duration::from_secs(1);
+const BLOCK_SYNC_VOTERS: usize = 10;
 
 #[derive(Debug, Error)]
 enum P2PError {
@@ -52,7 +55,12 @@ impl<T> From<SendError<T>> for P2PError {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+enum Protocol {
+    GossipPush {},
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct Message {
     pubkey: VerificationKeyBytes,
     signature: Signature,
@@ -117,7 +125,7 @@ fn discover(
 
     let (send, recv) = channel();
     let exit = Arc::new(AtomicBool::new(false));
-    let receiver_handle = tcp_receiver(listener, send, &exit, "discover");
+    let receiver_handle = tcp_receiver(listener, send, &exit, "discover-receiver");
 
     while discovered.len() < target {
         let addr = cluster_info.get_discovery_node().unwrap(); // TODO: find a pretty way so that we do not dial the same peer more than once, and that if it errors out, we retry.
@@ -144,7 +152,26 @@ fn discover(
     Ok(discovered)
 }
 
-// fn block_sync(listener: TcpListener, cluster_info: Arc<ClusterInfo>, chain: &mut Chain)
+fn block_sync(
+    listener: TcpListener,
+    since: DateTime<Utc>,
+    cluster_info: Arc<ClusterInfo>,
+    chain: &mut Chain,
+) -> Result<(), P2PError> {
+    let contacts: Vec<SocketAddr> = discover(listener.try_clone().unwrap(), cluster_info, 100)?
+        .into_iter()
+        .collect();
+
+    let (send, recv) = channel();
+    let exit = Arc::new(AtomicBool::new(false));
+    let receiver_handle = tcp_receiver(listener, send, &exit, "sync-reciever");
+
+    let voters: Vec<&SocketAddr> = contacts
+        .choose_multiple(&mut thread_rng(), BLOCK_SYNC_VOTERS)
+        .collect(); // TODO: maybe weight with the staking distribution?
+
+    Ok(())
+}
 
 fn send_udp(socket: &UdpSocket, addr: &SocketAddr, message: Message) -> io::Result<usize> {
     socket.send_to(&serialize(message).unwrap(), addr)
@@ -197,6 +224,18 @@ impl ClusterInfo {
             VerificationKeyBytes::from(self.keypair.verification_key()),
             self.keypair.sign(msg),
             msg.to_vec(),
+            timestamp,
+        )
+    }
+
+    fn new_initiate_sync_message(&self, since: DateTime<Utc>) -> Message {
+        // maybe message should be an enum and then we could just match on the deserialized message?
+        let timestamp = Utc::now().timestamp_millis();
+        let msg = format!(r#"{{"service":"block_sync","since":{}}}"#, since);
+        Message::new(
+            VerificationKeyBytes::from(self.keypair.verification_key()),
+            self.keypair.sign(msg.as_bytes()),
+            msg.into_bytes(),
             timestamp,
         )
     }

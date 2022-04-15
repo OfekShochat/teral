@@ -48,10 +48,6 @@ impl Validator {
         let cluster_info = Arc::new(ClusterInfo::new(keypair, storage.clone()));
         let (gossip, gossip_receiver) = GossipService::new(cluster_info, udp_socket, &exit);
 
-        let codes = vec![0x01];
-
-        execute(codes, vec![U256::from(2_u8), U256::from(3_u8)], storage.clone());
-
         Self {
             exit,
             chain,
