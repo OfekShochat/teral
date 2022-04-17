@@ -131,6 +131,13 @@ impl Stack {
         Ok(())
     }
 
+    fn push_multiple_to_return(&mut self, values: Vec<U256>) -> Result<(), VmError> {
+        for v in values {
+            self.push_to_return(v)?;
+        }
+        Ok(())
+    }
+
     fn pop(&mut self) -> Result<U256, VmError> {
         if self.stack_pos == 1 {
             return Err(VmError::StackUnderflow);
@@ -228,7 +235,7 @@ impl Vm {
         storage: Arc<dyn Storage>,
     ) -> Result<Self, VmError> {
         let mut stack = Stack::new();
-        stack.push_multiple(args)?;
+        stack.push_multiple_to_return(args)?;
 
         Ok(Self {
             stack,
@@ -360,8 +367,8 @@ impl Vm {
                 let alternative_offset = self.stack.pop()?;
                 let cond = self.stack.pop()?;
                 if cond == U256::zero() {
-                    if alternative_offset < U256::from(self.opcodes.len() - self.index) {
-                        self.index += alternative_offset.as_usize() + 1;
+                    if alternative_offset <= U256::from(self.opcodes.len() - self.index) {
+                        self.index += alternative_offset.as_usize();
                     } else {
                         return Err(VmError::InvalidJump(
                             alternative_offset + U256::from(self.index),
@@ -374,8 +381,8 @@ impl Vm {
                 let alternative_offset = self.stack.pop()?;
                 let cond = self.stack.pop()?;
                 if cond != U256::zero() {
-                    if alternative_offset < U256::from(self.opcodes.len() - self.index) {
-                        self.index += alternative_offset.as_usize() + 1;
+                    if alternative_offset <= U256::from(self.opcodes.len() - self.index) {
+                        self.index += alternative_offset.as_usize();
                     } else {
                         return Err(VmError::InvalidJump(
                             alternative_offset + U256::from(self.index),
@@ -386,7 +393,7 @@ impl Vm {
             }
             Opcode::Jump => {
                 let alternative = self.stack.pop()?;
-                if alternative < U256::from(self.opcodes.len() - self.index) {
+                if alternative <= U256::from(self.opcodes.len() - self.index) {
                     self.index += alternative.as_usize();
                 } else {
                     return Err(VmError::InvalidJump(U256::from(self.index) + alternative, self.opcodes.len()));
@@ -414,7 +421,7 @@ impl Vm {
 pub fn execute(_opcodes: Vec<u8>, args: Vec<U256>, storage: Arc<dyn Storage>) {
     // let opcodes = vec![0x48, 0x00, 0x07, 4];
     let st = std::time::Instant::now();
-    let mut vm = Vm::with_arguments([0; 32], _opcodes, vec![], storage).unwrap();
+    let mut vm = Vm::with_arguments([0; 32], _opcodes, args, storage).unwrap();
     while !vm.should_stop() {
         // println!("{:?}", vm);
         vm.advance().unwrap();

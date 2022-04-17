@@ -399,9 +399,10 @@ impl Compiler {
 
     fn function(&mut self) -> Result<(), CompileError> {
         let name = self.bump()?.value.clone();
-        let parameters = self.get_parameters()?;
-        self.functions.insert(name, (self.output.len(), parameters));
+        let mut parameters = self.get_parameters()?;
+        self.functions.insert(name, (self.output.len(), parameters.clone()));
 
+        self.binded_context.append(&mut parameters);
         self.advance_until_end()?;
         Ok(())
     }
@@ -456,7 +457,7 @@ impl Compiler {
         self.binded_context.append(names);
 
         self.advance_until_end()?;
-        self.push_opcode(Opcode::ClearReturn); // TODO: clear only the ones we added rn.
+        // self.push_opcode(Opcode::ClearReturn); // TODO: clear only the ones we added rn.
         self.binded_context.truncate(names.len());
         Ok(())
     }
@@ -466,12 +467,13 @@ impl Compiler {
             let pos = self
                 .binded_context
                 .iter()
+                .rev() // if we push anything with the same name, we want to get the latest one
                 .position(|x| *x == self.first().value);
-            self.push_opcode(Opcode::CopyToMain(pos.unwrap() as u8));
+            self.push_opcode(Opcode::CopyToMain((self.binded_context.len() - pos.unwrap() - 1) as u8));
             self.bump()?;
             Ok(())
         } else {
-            Err(CompileError::UnexpectedToken("identifier".to_string()))
+            Err(CompileError::UnexpectedToken(self.first().value.clone()))
         }
     }
 
@@ -480,17 +482,19 @@ impl Compiler {
         let to = self.input[self.index..]
             .iter()
             .position(|tok| {
-                tok.kind != TokenKind::Keyword(Keyword::Else)
-                    || tok.kind != TokenKind::Keyword(Keyword::End)
+                tok.kind == TokenKind::Keyword(Keyword::Else)
+                    || tok.kind == TokenKind::Keyword(Keyword::End)
             })
             .expect("Could not find else/end keywords to end `if`");
         self.push_opcode(Opcode::Push(1));
-        self.output.push(to as u8);
+        let before = self.output.len();
         self.push_opcode(Opcode::Jumpif);
 
         self.advance_while(|k| {
             k != TokenKind::Keyword(Keyword::Else) && k != TokenKind::Keyword(Keyword::End)
         })?;
+
+        self.output.insert(before, (self.output.len() - before - 1) as u8);
 
         let with_else = self.input[self.index - 1].kind == TokenKind::Keyword(Keyword::Else);
         if with_else {
@@ -572,16 +576,15 @@ pub fn parse(input: String) {
     let st = std::time::Instant::now();
     let input = lex(r#"
 fn transfer from to amount in
-    0x2
-    0x1
-    1000_u64
-    let from to amount in
-        1
-        if
-            amount 100_u8 >
-            require
-        end
+    amount 100_u8 >
+    require
+    0_u8
+    if
+        10
+    else
+        11
     end
+    100
 end"#
         .to_string());
     let mut compiler = Compiler::new(input);
@@ -591,7 +594,7 @@ end"#
     println!("{:?}", somewhat_decompile(&compiler.output));
     super::execute(
         compiler.output.clone(),
-        vec![],
+        vec![U256::from(1234), U256::from(1235), U256::from(101)],
         RocksdbStorage::load(&Default::default()),
     );
     println!("\n\n");
@@ -605,8 +608,8 @@ fn somewhat_decompile(input: &[u8]) -> Vec<(Opcode, U256)> {
             let a = match poop {
                 Opcode::Push(n) => {
                     i += n as usize;
-                    // (poop, U256::from_little_endian(&input[i - n as usize..i as usize]))
-                    (poop, U256::from(0))
+                    (poop, U256::from_little_endian(&input[i - n as usize + 1..i as usize + 1]))
+                    // (poop, U256::from(0))
                 }
                 _ => (poop, U256::from(0_usize)),
             };
