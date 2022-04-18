@@ -1,6 +1,10 @@
 use primitive_types::U256;
 
-use crate::{config::TeralConfig, validator::Validator, contracts::{execute, parse}};
+use crate::{
+    config::TeralConfig,
+    contracts::{execute, parse},
+    validator::Validator,
+};
 
 mod chain;
 mod config;
@@ -45,7 +49,8 @@ fn transfer from to amount in
         store
     end
 end
-"#.to_string();
+"#
+    .to_string();
     parse(input);
 
     validator.schedule_contract(contracts::ContractRequest::new(

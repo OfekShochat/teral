@@ -20,8 +20,8 @@ pub(crate) mod language;
 mod language_compiler;
 mod native;
 
-pub use language_compiler::parse;
 pub use language::execute;
+pub use language_compiler::parse;
 
 pub fn native_init(storage: Arc<dyn Storage>) {
     native::teral_init(ContractStorage::new(storage));

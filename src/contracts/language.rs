@@ -360,7 +360,10 @@ impl Vm {
                 self.stack.push(self.stack.return_stack[n as usize])?;
             }
             Opcode::ClearReturn => {
-                self.stack.return_stack.iter_mut().for_each(|elem| *elem = U256::zero());
+                self.stack
+                    .return_stack
+                    .iter_mut()
+                    .for_each(|elem| *elem = U256::zero());
                 self.stack.return_stack_pos = 1;
             }
             Opcode::Swap(n) => self.stack.swap(n)?,
@@ -397,7 +400,10 @@ impl Vm {
                 if alternative <= U256::from(self.opcodes.len() - self.index) {
                     self.index += alternative.as_usize();
                 } else {
-                    return Err(VmError::InvalidJump(U256::from(self.index) + alternative, self.opcodes.len()));
+                    return Err(VmError::InvalidJump(
+                        U256::from(self.index) + alternative,
+                        self.opcodes.len(),
+                    ));
                 }
             }
             Opcode::Dup => self.stack.dup()?,

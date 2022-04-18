@@ -398,7 +398,8 @@ impl Compiler {
     }
 
     fn function(&mut self) -> Result<(), CompileError> {
-        let name = self.bump()?.value.clone();
+        self.bump()?;
+        let name = self.first().value.clone();
         let mut parameters = self.get_parameters()?;
         self.functions
             .insert(name, (self.output.len(), parameters.clone()));
@@ -496,7 +497,6 @@ impl Compiler {
         self.advance_while(|k| {
             k != TokenKind::Keyword(Keyword::Else) && k != TokenKind::Keyword(Keyword::End)
         })?;
-
 
         let with_else = self.input[self.index - 1].kind == TokenKind::Keyword(Keyword::Else);
         if with_else {
@@ -612,8 +612,6 @@ fn transfer from to amount in
     0_u8
     if
         10
-    else
-        11
     end
     100 get
 end"#
@@ -690,33 +688,83 @@ pub fn lex(input: String) -> Vec<Token> {
     tokens
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::lex;
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
 
-//     #[test]
-//     fn if_statements() {
-//         let input = lex(r#"
-// fn transfer from to amount in
-//     0x29d7d1dd5b6f9c864d9db560d72a247c178ae86b
-//     let poopoo in
-//         0_u32
-//         if
-//             100_u8
-//         else
-//             31_u32
-//         end
-//     end
-// end"#.to_string());
-//         let mut compiler = Compiler::new(input);
-//         compiler.advance().unwrap();
-//         println!("{:?}", st.elapsed());
-//         println!("{:?} {:?}", compiler.functions, compiler.output.len());
-//         println!("{:?}", somewhat_decompile(&compiler.output));
-//         super::execute(
-//             compiler.output.clone(),
-//             vec![],
-//             RocksdbStorage::load(&Default::default()),
-//         );
-//     }
-// }
+    use super::*;
+
+    #[test]
+    fn if_else() {
+        let input = lex(r#"
+fn transfer from to amount in
+    amount 100_u8 >
+    require
+    0_u8
+    if
+        10
+    else
+        11
+    end
+    100 get
+end"#
+            .to_string());
+        let mut compiler = Compiler::new(input);
+        if let Err(err) = compiler.advance() {
+            assert!(false, "{}", err);
+        }
+        let mut expected_functions = HashMap::new();
+        expected_functions.insert(
+            "transfer".to_string(),
+            (
+                0_usize,
+                vec!["from".to_string(), "to".to_string(), "amount".to_string()],
+            ),
+        );
+        assert_eq!(expected_functions, compiler.functions.clone());
+
+        let expected_output = vec![
+            76, 7, 100, 177, 7, 1, 180, 0, 7, 0, 7, 36, 72, 38, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 33, 73, 38, 11, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            38, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 6,
+        ];
+        assert_eq!(expected_output, compiler.output.clone());
+    }
+
+    #[test]
+    fn only_if() {
+        let input = lex(r#"
+fn transfer from to amount in
+    amount 100_u8 >
+    require
+    0_u8
+    if
+        10
+    end
+    100 get
+end"#
+            .to_string());
+        let mut compiler = Compiler::new(input);
+        if let Err(err) = compiler.advance() {
+            assert!(false, "{}", err);
+        }
+        let mut expected_functions = HashMap::new();
+        expected_functions.insert(
+            "transfer".to_string(),
+            (
+                0_usize,
+                vec!["from".to_string(), "to".to_string(), "amount".to_string()],
+            ),
+        );
+        assert_eq!(expected_functions, compiler.functions.clone());
+
+        let expected_output = vec![
+            76, 7, 100, 177, 7, 1, 180, 0, 7, 0, 7, 33, 72, 38, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 38, 100, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6,
+        ];
+        assert_eq!(expected_output, compiler.output.clone());
+    }
+}
