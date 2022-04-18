@@ -61,7 +61,6 @@ pub enum TokenKind {
     Num(Base, Type),
     Op(Bin),
     Ident,
-    EqSign,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -74,6 +73,7 @@ pub enum Bin {
     Gt,
     Leq,
     Geq,
+    EqSign,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -305,7 +305,7 @@ impl Lexer {
         let kind = match self.first() {
             'a'..='z' | 'A'..='Z' | '_' => self.identifier()?,
             '0'..='9' => self.number()?,
-            '=' if self.second()? == '=' => TokenKind::EqSign,
+            '=' if self.second()? == '=' => TokenKind::Op(Bin::EqSign),
             '-' => TokenKind::Op(Bin::Sub),
             '+' => TokenKind::Op(Bin::Add),
             '*' => TokenKind::Op(Bin::Mul),
@@ -400,7 +400,8 @@ impl Compiler {
     fn function(&mut self) -> Result<(), CompileError> {
         let name = self.bump()?.value.clone();
         let mut parameters = self.get_parameters()?;
-        self.functions.insert(name, (self.output.len(), parameters.clone()));
+        self.functions
+            .insert(name, (self.output.len(), parameters.clone()));
 
         self.binded_context.append(&mut parameters);
         self.advance_until_end()?;
@@ -469,7 +470,9 @@ impl Compiler {
                 .iter()
                 .rev() // if we push anything with the same name, we want to get the latest one
                 .position(|x| *x == self.first().value);
-            self.push_opcode(Opcode::CopyToMain((self.binded_context.len() - pos.unwrap() - 1) as u8));
+            self.push_opcode(Opcode::CopyToMain(
+                (self.binded_context.len() - pos.unwrap() - 1) as u8,
+            ));
             self.bump()?;
             Ok(())
         } else {
@@ -494,14 +497,18 @@ impl Compiler {
             k != TokenKind::Keyword(Keyword::Else) && k != TokenKind::Keyword(Keyword::End)
         })?;
 
-        self.output.insert(before, (self.output.len() - before - 1) as u8);
 
         let with_else = self.input[self.index - 1].kind == TokenKind::Keyword(Keyword::Else);
         if with_else {
+            self.output
+                .insert(before, (self.output.len() - before + 2) as u8);
             self.push_opcode(Opcode::Push(1));
             let before = self.output.len();
             self.push_opcode(Opcode::Jump);
             self.advance_until_end()?;
+            self.output
+                .insert(before, (self.output.len() - before - 1) as u8);
+        } else {
             self.output
                 .insert(before, (self.output.len() - before - 1) as u8);
         }
@@ -518,6 +525,7 @@ impl Compiler {
             Bin::Gt => Opcode::Gt,
             Bin::Geq => Opcode::Geq,
             Bin::Leq => Opcode::Geq,
+            Bin::EqSign => Opcode::Eqi,
         };
         self.push_opcode(kind);
         self.bump()?;
@@ -533,7 +541,7 @@ impl Compiler {
             return Err(CompileError::UnexpectedEoc);
         }
         while predicate(self.first().kind.clone()) {
-            self.advance()?;
+            self.advance_within_function()?;
             if self.should_stop() {
                 return Err(CompileError::UnexpectedEoc);
             }
@@ -555,16 +563,39 @@ impl Compiler {
         self.output.push(opcode.to_u8());
     }
 
-    fn advance(&mut self) -> Result<(), CompileError> {
+    fn advance_within_function(&mut self) -> Result<(), CompileError> {
         match self.first().kind.clone() {
             TokenKind::Num(base, typ) => self.number(base, typ)?,
             TokenKind::Keyword(Keyword::Let) => self.bind_block(true)?,
             TokenKind::Keyword(Keyword::Peek) => self.bind_block(false)?,
-            TokenKind::Keyword(Keyword::Fnk) => self.function()?,
             TokenKind::Keyword(Keyword::If) => self.if_()?,
             TokenKind::Keyword(Keyword::Require) => self.require()?,
             TokenKind::Ident => self.identifier()?,
+            TokenKind::Keyword(Keyword::Get) => {
+                self.push_opcode(Opcode::Get);
+                self.bump()?;
+            }
+            TokenKind::Keyword(Keyword::Store) => {
+                self.push_opcode(Opcode::Store);
+                self.bump()?;
+            }
             TokenKind::Op(op) => self.op(op)?,
+            _ => panic!("{:?}", self.first().kind),
+        }
+        Ok(())
+    }
+
+    fn advance(&mut self) -> Result<(), CompileError> {
+        match self.first().kind.clone() {
+            TokenKind::Keyword(Keyword::Fnk) => self.function()?,
+            TokenKind::Keyword(Keyword::Mapping) => {
+                if self.second()?.kind != TokenKind::Ident {
+                    return Err(CompileError::UnexpectedToken(self.second()?.value.clone()));
+                }
+                self.binded_context.push(self.second()?.value.clone());
+                self.bump()?;
+                self.bump()?;
+            }
             _ => panic!("{:?}", self.first().kind),
         }
         Ok(())
@@ -584,7 +615,7 @@ fn transfer from to amount in
     else
         11
     end
-    100
+    100 get
 end"#
         .to_string());
     let mut compiler = Compiler::new(input);
@@ -608,7 +639,10 @@ fn somewhat_decompile(input: &[u8]) -> Vec<(Opcode, U256)> {
             let a = match poop {
                 Opcode::Push(n) => {
                     i += n as usize;
-                    (poop, U256::from_little_endian(&input[i - n as usize + 1..i as usize + 1]))
+                    (
+                        poop,
+                        U256::from_little_endian(&input[i - n as usize + 1..i as usize + 1]),
+                    )
                     // (poop, U256::from(0))
                 }
                 _ => (poop, U256::from(0_usize)),

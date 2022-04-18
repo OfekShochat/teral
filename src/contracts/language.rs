@@ -265,6 +265,7 @@ impl Vm {
     fn advance(&mut self) -> Result<(), VmError> {
         let op = self.next().ok_or(VmError::ShouldStop)?;
 
+        println!("{:?}", op);
         match op {
             Opcode::Terminate => self.terminated = true,
             // TODO: macro...
