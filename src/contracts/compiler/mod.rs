@@ -1,5 +1,5 @@
-//mod lexer;
-//mod tests;
+mod lexer;
+mod tests;
 
 use std::{collections::HashMap, str::FromStr};
 
@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use crate::storage::{RocksdbStorage, Storage};
 
-use self::lexer::{Token, TokenKind, Bin, Keyword, Lexer, Base, Type};
+use lexer::{Token, TokenKind, Bin, Keyword, Lexer, Base, Type};
 
 use super::language::Opcode;
 
