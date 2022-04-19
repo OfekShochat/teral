@@ -90,6 +90,7 @@ pub enum Keyword {
     Dup,
     Require,
     In,
+    Iszero,
 }
 
 impl TryFrom<&str> for Keyword {
@@ -109,6 +110,7 @@ impl TryFrom<&str> for Keyword {
             "dup" => Ok(Self::Dup),
             "require" => Ok(Self::Require),
             "in" => Ok(Self::In),
+            "iszero" => Ok(Self::Iszero),
             _ => Err(CompileError::CantInterpret(
                 value.to_string(),
                 "keyword".to_string(),
@@ -571,6 +573,10 @@ impl Compiler {
             TokenKind::Keyword(Keyword::If) => self.if_()?,
             TokenKind::Keyword(Keyword::Require) => self.require()?,
             TokenKind::Ident => self.identifier()?,
+            TokenKind::Keyword(Keyword::Iszero) => {
+                self.push_opcode(Opcode::Iszero);
+                self.bump()?;
+            }
             TokenKind::Keyword(Keyword::Get) => {
                 self.push_opcode(Opcode::Get);
                 self.bump()?;
@@ -607,13 +613,15 @@ pub fn parse(input: String) {
     let st = std::time::Instant::now();
     let input = lex(r#"
 fn transfer from to amount in
-    amount 100_u8 >
-    require
     0_u8
     if
         10
     end
-    100 get
+
+    from amount +
+    if
+        20
+    end
 end"#
         .to_string());
     let mut compiler = Compiler::new(input);
@@ -653,31 +661,6 @@ fn somewhat_decompile(input: &[u8]) -> Vec<(Opcode, U256)> {
 }
 
 pub fn lex(input: String) -> Vec<Token> {
-    // let input = r#"
-    // mapping Balances
-    // fn transfer u256 from u256 to u64 amount
-    // Balances from get
-    // peek from_balance
-    // require
-    // from_balance amount > require
-
-    // Balances
-    // from
-    // from_balance amount -
-    // store
-
-    // Balances to get
-    // let to_balance if
-    //     Balances to
-    //     to_balance amount +
-    //     store
-    // else
-    //     Balances
-    // to amount
-    // store
-    // end
-    // end
-    // "#.to_string();
     let mut lexer = Lexer::new(input);
     let mut tokens = vec![];
     while !lexer.should_stop() {
@@ -690,8 +673,6 @@ pub fn lex(input: String) -> Vec<Token> {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::*;
 
     #[test]
@@ -737,13 +718,15 @@ end"#
     fn only_if() {
         let input = lex(r#"
 fn transfer from to amount in
-    amount 100_u8 >
-    require
     0_u8
     if
         10
     end
-    100 get
+
+    from amount +
+    if
+        20
+    end
 end"#
             .to_string());
         let mut compiler = Compiler::new(input);
@@ -761,9 +744,40 @@ end"#
         assert_eq!(expected_functions, compiler.functions.clone());
 
         let expected_output = vec![
-            76, 7, 100, 177, 7, 1, 180, 0, 7, 0, 7, 33, 72, 38, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 38, 100, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6,
+            7, 0, 7, 33, 72, 38, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 74, 76, 1, 7, 33, 72, 38, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        assert_eq!(expected_output, compiler.output.clone());
+    }
+
+    #[test]
+    fn iszero() {
+        let input = lex(r#"
+fn transfer from to amount in
+    10
+    iszero if
+        amount +
+    end
+end"#
+            .to_string());
+        let mut compiler = Compiler::new(input);
+        if let Err(err) = compiler.advance() {
+            assert!(false, "{}", err);
+        }
+        let mut expected_functions = HashMap::new();
+        expected_functions.insert(
+            "transfer".to_string(),
+            (
+                0_usize,
+                vec!["from".to_string(), "to".to_string(), "amount".to_string()],
+            ),
+        );
+        assert_eq!(expected_functions, compiler.functions.clone());
+
+        let expected_output = vec![
+            38, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 181, 7, 2, 72, 76, 1,
         ];
         assert_eq!(expected_output, compiler.output.clone());
     }

@@ -47,6 +47,7 @@ pub enum Opcode {
     Jumpifnot,
     Jump,
     Dup,
+    Iszero,
 }
 
 impl Opcode {
@@ -67,13 +68,14 @@ impl Opcode {
             0x6b => Some(Self::Dup),
             0x6c => Some(Self::ClearReturn),
             0x6d..=0x8d => Some(Self::MoveToReturn(opcode - 0x6c)),
-            0x8e..=0xae => Some(Self::CopyToReturn(opcode - 0x6d)),
+            0x8e..=0xae => Some(Self::CopyToReturn(opcode - 0x8d)),
             0xaf => Some(Self::Eqi),
             0xb0 => Some(Self::Lt),
             0xb1 => Some(Self::Gt),
             0xb2 => Some(Self::Geq),
             0xb3 => Some(Self::Leq),
             0xb4 => Some(Self::Jumpifnot),
+            0xb5 => Some(Self::Iszero),
             _ => None,
         }
     }
@@ -102,6 +104,7 @@ impl Opcode {
             Self::Jump => 0x49,
             Self::Dup => 0x6b,
             Self::ClearReturn => 0x6c,
+            Self::Iszero => 0xb5,
         }
     }
 }
@@ -265,7 +268,6 @@ impl Vm {
     fn advance(&mut self) -> Result<(), VmError> {
         let op = self.next().ok_or(VmError::ShouldStop)?;
 
-        println!("{:?}", op);
         match op {
             Opcode::Terminate => self.terminated = true,
             // TODO: macro...
@@ -407,6 +409,10 @@ impl Vm {
                 }
             }
             Opcode::Dup => self.stack.dup()?,
+            Opcode::Iszero => {
+                let value = self.stack.peek();
+                self.stack.push(U256::from(value.is_zero() as u8))?
+            }
         }
         Ok(())
     }
@@ -434,7 +440,7 @@ pub fn execute(_opcodes: Vec<u8>, args: Vec<U256>, storage: Arc<dyn Storage>) {
         vm.advance().unwrap();
     }
     let end = st.elapsed();
-    println!("{:?}", end);
+    println!("welp {:?}", end);
     println!("{:?}", 1.0 / (end.as_secs_f64() * 3.0));
     tracing::info!("{:?}", vm);
 }
