@@ -17,11 +17,11 @@ use {
 };
 
 pub(crate) mod language;
-mod language_compiler;
+mod compiler;
 mod native;
 
 pub use language::execute;
-pub use language_compiler::parse;
+pub use compiler::parse;
 
 pub fn native_init(storage: Arc<dyn Storage>) {
     native::teral_init(ContractStorage::new(storage));
@@ -29,8 +29,6 @@ pub fn native_init(storage: Arc<dyn Storage>) {
 
 const CONTRACT_QUEUE_SIZE: usize = 1024;
 const SYNC_RESPONDER_TIMEOUT: Duration = Duration::from_millis(100);
-
-// TODO: maybe somehow verify contracts with votes of the biggest share holders and then they will be able to access the api for the native currency?
 
 use rhai::EvalAltResult;
 use serde_json::to_string;

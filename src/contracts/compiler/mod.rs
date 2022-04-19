@@ -1,3 +1,6 @@
+//mod lexer;
+//mod tests;
+
 use std::{collections::HashMap, str::FromStr};
 
 use primitive_types::U256;
@@ -5,8 +8,29 @@ use thiserror::Error;
 
 use crate::storage::{RocksdbStorage, Storage};
 
+use self::lexer::{Token, TokenKind, Bin, Keyword, Lexer, Base, Type};
+
 use super::language::Opcode;
 
+#[derive(Debug, Error)]
+pub enum CompileError {
+    #[error("the compiler should have stopped but did not")]
+    ShouldStop,
+    #[error("unexpected end of word")]
+    UnexpectedEow,
+    #[error("unexpected end of code")]
+    UnexpectedEoc,
+    #[error("{0} syntax error: expected {1} got {2}")]
+    SyntaxError(usize, String, String),
+    #[error("'{0}' was unexpected in this context")]
+    UnexpectedToken(String),
+    #[error("can not interpret {0} as a {1}")]
+    CantInterpret(String, String),
+    #[error("could not convert {0} to Base")]
+    BaseParse(u32),
+    #[error("eventually expected `{0}` but got <eof>")]
+    EventuallyExpected(String),
+}
 
 #[derive(Debug)]
 struct Compiler {

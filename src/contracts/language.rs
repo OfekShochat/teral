@@ -444,6 +444,3 @@ pub fn execute(_opcodes: Vec<u8>, args: Vec<U256>, storage: Arc<dyn Storage>) {
     println!("{:?}", 1.0 / (end.as_secs_f64() * 3.0));
     tracing::info!("{:?}", vm);
 }
-
-#[cfg(test)]
-mod tests {}
