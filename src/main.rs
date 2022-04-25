@@ -2,7 +2,6 @@ use primitive_types::U256;
 
 use crate::{
     config::TeralConfig,
-    contracts::{execute, parse},
     validator::Validator,
 };
 
@@ -22,69 +21,7 @@ fn main() {
     let config = TeralConfig::read("teral.toml");
     let mut validator = Validator::new(config);
 
+    contracts::poop().unwrap();
     // TODO: how are we gonna verify a request is valid? we can make `from` a standard key that we
     // insert.
-
-    let input = r#"
-mapping Balances
-fn transfer from to amount in
-    Balances from get
-    peek from_balance
-    require
-    from_balance amount > require
-
-    Balances
-    from
-    from_balance amount -
-    store
-
-    Balances to get
-    let to_balance if
-        Balances to
-        to_balance amount +
-        store
-    else
-        Balances
-        to amount
-        store
-    end
-end
-"#
-    .to_string();
-    parse(input);
-
-    validator.schedule_contract(contracts::ContractRequest::new(
-        [0; 32],
-        String::from("native"),
-        String::from("add"),
-        serde_json::json!({ "name": "ginger", "code": r#"
-fn transfer(req) {
-    let from = storage.get(req["from"]);
-    if from == 0 || from["balance"] < req["amount"] { throw; }
-    from["balance"] -= req["amount"];
-    storage.set(req["from"], from);
-
-    let to = storage.get(req["to"]);
-    if to == 0 {
-        storage.set(req["to"], #{ "balance": req["amount"] })
-    } else {
-        to["balance"] += req["amount"];
-        storage.set(req["to"], to);
-    }
-}"#, "schema": "from:str;to:str;amount:u64" }),
-        0,
-    ));
-
-    validator.schedule_contract(contracts::ContractRequest::new(
-        [0; 32],
-        String::from("native"),
-        String::from("transfer"),
-        serde_json::json!({ "from": "ghostway", "to": "ginger", "amount": 100_u64}),
-        0,
-    ));
-
-    let r = validator.finalize_contracts();
-    println!("{:?} {}", r, r.recipt_count());
-
-    validator.stop();
 }

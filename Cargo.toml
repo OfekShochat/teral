@@ -23,8 +23,9 @@ base64 = "0.13"
 sha3 = "0.10"
 chrono = "0.4"
 ed25519-consensus = "2.0"
-rhai = { version = "1.6", features = [ "serde", "no_float", "no_closure", "no_module" ] }
 
+wat = "1.0"
+wasmer = { version = "2.2", features = [ "default-singlepass", "default-universal", "wat" ], default-features = false }
 rocksdb = { version = "0.18", optional = true }
 
 [[bin]]

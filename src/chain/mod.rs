@@ -10,26 +10,25 @@ use serde_json::Value;
 use sha3::{Digest, Sha3_256};
 
 use crate::{
-    contracts::{native_init, ContractRequest},
     storage::Storage,
 };
 
-fn hash_recipts(recipts: &[ContractRecipt], time: i64, output: &mut [u8]) {
-    let mut hasher = Sha3_256::new();
-    recipts.iter().for_each(|req| {
-        let mut s = String::with_capacity(50);
-        s.push_str(&req.contract_name);
-        s.push_str(&req.contract_method);
-        s.push_str(&serde_json::to_string(&req.req).unwrap());
-        // TODO: somehow make this with AsRef<[u8]>. Currently doing this does not work because
-        // of ownership.
+// fn hash_recipts(recipts: &[ContractRecipt], time: i64, output: &mut [u8]) {
+//     let mut hasher = Sha3_256::new();
+//     recipts.iter().for_each(|req| {
+//         let mut s = String::with_capacity(50);
+//         s.push_str(&req.contract_name);
+//         s.push_str(&req.contract_method);
+//         s.push_str(&serde_json::to_string(&req.req).unwrap());
+//         // TODO: somehow make this with AsRef<[u8]>. Currently doing this does not work because
+//         // of ownership.
 
-        hasher.update(s);
-    });
-    hasher.update(time.to_be_bytes());
+//         hasher.update(s);
+//     });
+//     hasher.update(time.to_be_bytes());
 
-    output.copy_from_slice(&hasher.finalize());
-}
+//     output.copy_from_slice(&hasher.finalize());
+// }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ContractRecipt {
@@ -38,19 +37,19 @@ pub struct ContractRecipt {
     req: Value,
 }
 
-impl From<ContractRequest> for ContractRecipt {
-    fn from(req: ContractRequest) -> Self {
-        Self {
-            contract_name: req.name,
-            contract_method: req.method_name,
-            req: req.req,
-        }
-    }
-}
+// impl From<ContractRequest> for ContractRecipt {
+//     fn from(req: ContractRequest) -> Self {
+//         Self {
+//             contract_name: req.name,
+//             contract_method: req.method_name,
+//             req: req.req,
+//         }
+//     }
+// }
 
-pub fn requests_to_recipts(req: Vec<ContractRequest>) -> Vec<ContractRecipt> {
-    req.into_iter().map(|req| req.into()).collect()
-}
+// pub fn requests_to_recipts(req: Vec<ContractRequest>) -> Vec<ContractRecipt> {
+//     req.into_iter().map(|req| req.into()).collect()
+// }
 
 #[derive(Serialize, Deserialize)]
 pub struct Block {
@@ -134,7 +133,6 @@ impl BlockStorage {
                 },
                 true,
             );
-            native_init(self.storage.clone());
             tracing::debug!("bootstrapped the blockchain.");
         }
     }
@@ -162,7 +160,7 @@ impl BlockBuilder {
     fn build(self, beneficiary: [u8; 32], previous_digest: [u8; 32]) -> Block {
         let time = Utc::now().timestamp_millis();
         let buf = &mut [0; 32];
-        hash_recipts(&self.transactions, time, buf);
+        // hash_recipts(&self.transactions, time, buf);
         Block {
             digest: *buf,
             previous_digest,
